@@ -786,7 +786,7 @@ document.getElementById('btn-add-foto').addEventListener('click', () => {
   div.id = `foto-item-${idx}`;
   div.innerHTML = `
     <input type="file" id="foto-file-${idx}" accept="image/*" capture="environment" style="display:none">
-    <button type="button" onclick="document.getElementById('foto-file-${idx}').click()"
+    <button type="button" id="foto-btn-${idx}"
       style="background:var(--light);border:none;border-radius:8px;color:var(--text);cursor:pointer;padding:10px;width:100%">
       📷 Seleccionar foto ${idx + 1}
     </button>
@@ -794,6 +794,10 @@ document.getElementById('btn-add-foto').addEventListener('click', () => {
     <input type="text" id="foto-desc-${idx}" placeholder="Descripción de la foto..." style="background:var(--dark);border:1px solid var(--light);border-radius:6px;color:var(--text);padding:8px;width:100%">
   `;
   document.getElementById('fotos-container').appendChild(div);
+
+  document.getElementById(`foto-btn-${idx}`).addEventListener('click', () => {
+    document.getElementById(`foto-file-${idx}`).click();
+  });
 
   document.getElementById(`foto-file-${idx}`).addEventListener('change', async function() {
     const file = this.files[0];
@@ -844,6 +848,10 @@ async function compressImage(file, maxKB) {
       };
       tryCompress();
     };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(file);
+    };
     img.src = url;
   });
 }
@@ -873,8 +881,6 @@ function initMap() {
 
   markerInstance = L.marker([-33.45, -70.65], { draggable: true }).addTo(mapInstance);
   markerInstance.on('dragend', updateCoordsDisplay);
-
-  locateGPS();
 }
 
 function locateGPS() {
