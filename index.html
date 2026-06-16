@@ -23,11 +23,595 @@
   <script src="https://unpkg.com/georaster-layer-for-leaflet@3.9.0/dist/georaster-layer-for-leaflet.min.js"></script>
 
   <style>
-    /* estilos en Task 2 */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --red: #e63946;
+  --orange: #f4a261;
+  --dark: #1a1a2e;
+  --mid: #16213e;
+  --light: #0f3460;
+  --text: #eaeaea;
+  --muted: #a0a0b0;
+  --success: #2ecc71;
+  --warning: #f39c12;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--dark);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+#app-header {
+  background: var(--red);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+#app-header h1 { font-size: 1rem; font-weight: 700; flex: 1; }
+
+/* Progress bar */
+#progress-bar {
+  background: var(--mid);
+  padding: 8px 16px;
+}
+#progress-track {
+  background: var(--light);
+  border-radius: 4px;
+  height: 6px;
+  overflow: hidden;
+}
+#progress-fill {
+  background: var(--red);
+  height: 100%;
+  transition: width 0.3s ease;
+}
+#step-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 4px;
+  text-align: center;
+}
+
+/* Steps */
+.step { display: none; flex-direction: column; gap: 16px; padding: 16px; flex: 1; }
+.step.active { display: flex; }
+.step h2 { font-size: 1rem; color: var(--red); border-bottom: 1px solid var(--light); padding-bottom: 8px; }
+
+/* Form fields */
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field-row { display: flex; align-items: center; gap: 8px; }
+.field label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.field input, .field select, .field textarea {
+  background: var(--mid);
+  border: 1px solid var(--light);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.95rem;
+  padding: 10px 12px;
+  width: 100%;
+  -webkit-appearance: none;
+}
+.field textarea { min-height: 80px; resize: vertical; }
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline: none;
+  border-color: var(--red);
+}
+
+/* Help button */
+.help-btn {
+  background: none;
+  border: 1px solid var(--muted);
+  border-radius: 50%;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  height: 18px;
+  line-height: 18px;
+  min-width: 18px;
+  text-align: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+/* Checkboxes / radio styled */
+.toggle-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.toggle-btn {
+  background: var(--mid);
+  border: 1px solid var(--light);
+  border-radius: 20px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 6px 14px;
+  transition: all 0.2s;
+}
+.toggle-btn.active { background: var(--red); border-color: var(--red); }
+
+/* Map */
+#map {
+  height: 280px;
+  border-radius: 8px;
+  overflow: hidden;
+  z-index: 1;
+}
+#coords-display {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: center;
+  font-family: monospace;
+}
+.map-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.map-btn {
+  background: var(--mid);
+  border: 1px solid var(--light);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 8px 12px;
+  flex: 1;
+}
+.map-btn:hover { border-color: var(--red); }
+
+/* Amenaza activa — destacado */
+.amenaza-field {
+  background: rgba(231,57,70,0.1);
+  border: 1px solid var(--red);
+  border-radius: 8px;
+  padding: 12px;
+}
+.amenaza-field label { color: var(--red); font-weight: 700; }
+
+/* Fotos */
+.foto-item {
+  background: var(--mid);
+  border: 1px solid var(--light);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.foto-preview {
+  border-radius: 6px;
+  max-height: 160px;
+  object-fit: cover;
+  width: 100%;
+  display: none;
+}
+.foto-preview.loaded { display: block; }
+
+/* Navigation buttons */
+#nav-buttons {
+  background: var(--mid);
+  border-top: 1px solid var(--light);
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  position: sticky;
+  bottom: 0;
+  z-index: 100;
+}
+.btn-nav {
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 12px;
+  flex: 1;
+}
+.btn-prev { background: var(--light); color: var(--text); }
+.btn-next { background: var(--red); color: white; }
+.btn-generate {
+  background: var(--success);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 14px;
+  width: 100%;
+  display: none;
+}
+
+/* Help modal */
+#help-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 9999;
+  align-items: flex-end;
+}
+#help-modal.open { display: flex; }
+#help-content {
+  background: var(--mid);
+  border-radius: 16px 16px 0 0;
+  padding: 24px 20px;
+  max-height: 60vh;
+  overflow-y: auto;
+  width: 100%;
+}
+#help-content h3 { color: var(--red); margin-bottom: 8px; }
+#help-content p { color: var(--text); line-height: 1.6; font-size: 0.95rem; }
+#help-close {
+  background: var(--light);
+  border: none;
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  margin-top: 16px;
+  padding: 10px;
+  width: 100%;
+}
+
+/* Multiselect chips */
+.chips-group { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  background: var(--mid);
+  border: 1px solid var(--light);
+  border-radius: 16px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 5px 12px;
+  user-select: none;
+}
+.chip.selected { background: var(--orange); border-color: var(--orange); color: var(--dark); }
+
+/* Loading overlay */
+#loading {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  z-index: 9998;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+}
+#loading.open { display: flex; }
+#loading p { color: white; font-size: 1rem; }
+.spinner {
+  width: 40px; height: 40px;
+  border: 4px solid var(--light);
+  border-top-color: var(--red);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
-  <!-- estructura en Task 2 -->
+  <!-- Header -->
+<div id="app-header">
+  <h1>🏔️ Remociones en Masa</h1>
+</div>
+
+<!-- Progress -->
+<div id="progress-bar">
+  <div id="progress-track"><div id="progress-fill" style="width:20%"></div></div>
+  <div id="step-label">Paso 1 de 5 — Ubicación</div>
+</div>
+
+<!-- PASO 1: Ubicación -->
+<div class="step active" id="step-1">
+  <h2>📍 Ubicación</h2>
+  <div id="map"></div>
+  <div id="coords-display">Sin ubicación GPS aún...</div>
+  <div class="map-actions">
+    <button class="map-btn" id="btn-gps">📡 Centrar GPS</button>
+    <button class="map-btn" id="btn-download-tiles" style="display:none">⬇️ Descargar área offline</button>
+    <button class="map-btn" id="btn-load-geotiff">🛰️ Cargar GeoTIFF</button>
+    <input type="file" id="input-geotiff" accept=".tif,.tiff" style="display:none">
+  </div>
+  <div class="field">
+    <label>Zona del evento <button class="help-btn" data-help="zona">?</button></label>
+    <div class="toggle-group" id="zona-toggle">
+      <button class="toggle-btn active" data-val="generacion">Generación</button>
+      <button class="toggle-btn" data-val="runout">Runout</button>
+      <button class="toggle-btn" data-val="ambas">Ambas</button>
+    </div>
+  </div>
+</div>
+
+<!-- PASO 2: Temporalidad y evento -->
+<div class="step" id="step-2">
+  <h2>📅 Temporalidad y Evento</h2>
+
+  <div class="field">
+    <label>Fecha <button class="help-btn" data-help="fecha">?</button></label>
+    <input type="date" id="fecha-inicio">
+    <div class="field-row" style="margin-top:6px">
+      <input type="checkbox" id="fecha-aprox"> <label for="fecha-aprox" style="font-size:0.85rem">Aproximada</label>
+      <input type="checkbox" id="fecha-rango" style="margin-left:12px"> <label for="fecha-rango" style="font-size:0.85rem">Rango</label>
+    </div>
+    <input type="date" id="fecha-fin" placeholder="Fecha fin" style="display:none; margin-top:6px">
+  </div>
+
+  <div class="field">
+    <label>Hora <button class="help-btn" data-help="hora">?</button></label>
+    <input type="time" id="hora-inicio">
+    <div class="field-row" style="margin-top:6px">
+      <input type="checkbox" id="hora-desconocida"> <label for="hora-desconocida" style="font-size:0.85rem">Desconocida</label>
+      <input type="checkbox" id="hora-rango" style="margin-left:12px"> <label for="hora-rango" style="font-size:0.85rem">Rango</label>
+    </div>
+    <input type="time" id="hora-fin" style="display:none; margin-top:6px">
+  </div>
+
+  <div class="field">
+    <label>Desencadenante <button class="help-btn" data-help="desencadenante">?</button></label>
+    <select id="desencadenante">
+      <option value="">— Seleccionar —</option>
+      <option>Lluvia intensa</option>
+      <option>Sismo</option>
+      <option>Deshielo</option>
+      <option>Antrópico</option>
+      <option>Desconocido</option>
+      <option>Otro</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>Tipo de movimiento <button class="help-btn" data-help="tipo">?</button></label>
+    <select id="tipo-movimiento">
+      <option value="">— Seleccionar —</option>
+      <option>Caída de roca</option>
+      <option>Deslizamiento traslacional</option>
+      <option>Deslizamiento rotacional</option>
+      <option>Flujo de detritos</option>
+      <option>Aluvión</option>
+      <option>Avalancha de rocas</option>
+      <option>Reptación</option>
+      <option>Otro</option>
+    </select>
+  </div>
+</div>
+
+<!-- PASO 3: Morfometría -->
+<div class="step" id="step-3">
+  <h2>📐 Morfometría</h2>
+  <p style="font-size:0.8rem;color:var(--muted)">Todos los campos son opcionales. Marcar "est." si el valor es estimado.</p>
+  <div id="morfometria-fields"></div>
+</div>
+
+<!-- PASO 4: Características y contexto -->
+<div class="step" id="step-4">
+  <h2>🪨 Características y Contexto</h2>
+
+  <h3 style="font-size:0.85rem;color:var(--muted);margin-top:4px">Depósito</h3>
+
+  <div class="field">
+    <label>Granulometría dominante <button class="help-btn" data-help="granulometria">?</button></label>
+    <div class="chips-group" id="granulometria-chips">
+      <span class="chip" data-val="bloques">Bloques</span>
+      <span class="chip" data-val="gravas">Gravas</span>
+      <span class="chip" data-val="arenas">Arenas</span>
+      <span class="chip" data-val="limos">Limos</span>
+      <span class="chip" data-val="arcillas">Arcillas</span>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Tamaño máx. bloques (cm) <button class="help-btn" data-help="bloques">?</button></label>
+    <input type="number" id="tamano-bloques" min="0" placeholder="ej: 150">
+  </div>
+
+  <div class="field">
+    <label>Proporción de bloques (% estimado) <button class="help-btn" data-help="proporcion">?</button></label>
+    <input type="number" id="prop-bloques" min="0" max="100" placeholder="ej: 30">
+  </div>
+
+  <div class="field">
+    <label>Humedad del material <button class="help-btn" data-help="humedad">?</button></label>
+    <select id="humedad">
+      <option value="">— Seleccionar —</option>
+      <option>Seco</option>
+      <option>Húmedo</option>
+      <option>Saturado</option>
+      <option>Fluidizado</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>Clasificación (sorting) <button class="help-btn" data-help="sorting">?</button></label>
+    <select id="sorting">
+      <option value="">— Seleccionar —</option>
+      <option>Bien clasificado</option>
+      <option>Mal clasificado</option>
+      <option>Caótico</option>
+    </select>
+  </div>
+
+  <h3 style="font-size:0.85rem;color:var(--muted);margin-top:8px">Talud / Escarpe</h3>
+
+  <div class="field">
+    <label>Litología <button class="help-btn" data-help="litologia">?</button></label>
+    <select id="litologia">
+      <option value="">— Seleccionar —</option>
+      <option>Granito</option>
+      <option>Basalto</option>
+      <option>Andesita</option>
+      <option>Pizarra</option>
+      <option>Suelo volcánico</option>
+      <option>Relleno antrópico</option>
+      <option>Otro</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>Orientación del escarpe (°N) <button class="help-btn" data-help="orientacion">?</button></label>
+    <input type="number" id="orientacion" min="0" max="360" placeholder="ej: 180 (Sur)">
+  </div>
+
+  <div class="field">
+    <label>Estructuras geológicas <button class="help-btn" data-help="estructuras">?</button></label>
+    <div class="chips-group" id="estructuras-chips">
+      <span class="chip" data-val="fallas">Fallas</span>
+      <span class="chip" data-val="diaclasas">Diaclasas</span>
+      <span class="chip" data-val="foliacion">Foliación</span>
+      <span class="chip" data-val="sin-estructuras">Sin estructuras visibles</span>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Cobertura vegetal <button class="help-btn" data-help="vegetacion">?</button></label>
+    <select id="vegetacion">
+      <option value="">— Seleccionar —</option>
+      <option>Sin vegetación</option>
+      <option>Matorral</option>
+      <option>Bosque</option>
+      <option>Plantación forestal</option>
+    </select>
+  </div>
+
+  <h3 style="font-size:0.85rem;color:var(--muted);margin-top:8px">Condiciones previas</h3>
+
+  <div class="field">
+    <label>Lluvia previa intensa <button class="help-btn" data-help="lluvia">?</button></label>
+    <select id="lluvia-previa">
+      <option value="">— Seleccionar —</option>
+      <option>Sí</option>
+      <option>No</option>
+      <option>Desconocido</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>Sismo previo <button class="help-btn" data-help="sismo">?</button></label>
+    <select id="sismo-previo">
+      <option value="">— Seleccionar —</option>
+      <option>No</option>
+      <option>Sí</option>
+      <option>Desconocido</option>
+    </select>
+    <input type="number" id="sismo-magnitud" placeholder="Magnitud aproximada (ej: 6.5)" style="display:none;margin-top:6px" step="0.1">
+  </div>
+
+  <div class="field">
+    <label>Intervención antrópica <button class="help-btn" data-help="antropico">?</button></label>
+    <select id="antropico">
+      <option value="">— Seleccionar —</option>
+      <option>Ninguna</option>
+      <option>Corte de talud</option>
+      <option>Relleno</option>
+      <option>Canal</option>
+      <option>Otro</option>
+    </select>
+  </div>
+
+  <h3 style="font-size:0.85rem;color:var(--muted);margin-top:8px">Contexto de riesgo</h3>
+
+  <div class="field amenaza-field">
+    <label>⚠️ ¿Amenaza activa? <button class="help-btn" data-help="amenaza">?</button></label>
+    <div class="toggle-group" id="amenaza-toggle" style="margin-top:8px">
+      <button class="toggle-btn" data-val="no">No</button>
+      <button class="toggle-btn" data-val="incierta">Incierta</button>
+      <button class="toggle-btn" data-val="si">SÍ</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Personas afectadas <button class="help-btn" data-help="personas">?</button></label>
+    <select id="personas-afectadas">
+      <option value="">— Seleccionar —</option>
+      <option>Sin afectados</option>
+      <option>Evacuados</option>
+      <option>Heridos</option>
+      <option>Fallecidos</option>
+    </select>
+    <input type="number" id="num-personas" placeholder="Número de personas" style="display:none;margin-top:6px" min="0">
+  </div>
+
+  <div class="field">
+    <label>Infraestructura afectada <button class="help-btn" data-help="infraestructura">?</button></label>
+    <div class="chips-group" id="infra-chips">
+      <span class="chip" data-val="viviendas">Viviendas</span>
+      <span class="chip" data-val="carretera">Carretera</span>
+      <span class="chip" data-val="puente">Puente</span>
+      <span class="chip" data-val="electrica">Línea eléctrica</span>
+      <span class="chip" data-val="otro">Otro</span>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Distancia a primera vivienda (m) <button class="help-btn" data-help="distancia">?</button></label>
+    <input type="number" id="dist-vivienda" min="0" placeholder="ej: 50">
+  </div>
+
+  <div class="field">
+    <label>Efectos <button class="help-btn" data-help="efectos">?</button></label>
+    <textarea id="efectos" placeholder="Describe los efectos observados (corte de camino, daños en viviendas, etc.)"></textarea>
+  </div>
+
+  <div class="field">
+    <label>Otros / Observaciones <button class="help-btn" data-help="otros">?</button></label>
+    <textarea id="otros" placeholder="Cualquier otra observación relevante..."></textarea>
+  </div>
+</div>
+
+<!-- PASO 5: Fotos y cierre -->
+<div class="step" id="step-5">
+  <h2>📷 Fotos y Cierre</h2>
+
+  <div id="fotos-container"></div>
+  <button id="btn-add-foto" style="background:var(--mid);border:1px dashed var(--light);border-radius:8px;color:var(--muted);cursor:pointer;padding:12px;width:100%;font-size:0.9rem">
+    + Agregar foto (máx. 5)
+  </button>
+
+  <div class="field" style="margin-top:8px">
+    <label>Autor <button class="help-btn" data-help="autor">?</button></label>
+    <input type="text" id="autor" placeholder="Nombre y apellido">
+  </div>
+
+  <div class="field">
+    <label>Hora de ingreso</label>
+    <input type="text" id="hora-ingreso" readonly style="color:var(--muted)">
+  </div>
+
+  <button class="btn-generate" id="btn-generate">⬇️ Generar KMZ</button>
+</div>
+
+<!-- Navigation -->
+<div id="nav-buttons">
+  <button class="btn-nav btn-prev" id="btn-prev" style="display:none">← Anterior</button>
+  <button class="btn-nav btn-next" id="btn-next">Siguiente →</button>
+</div>
+
+<!-- Help modal -->
+<div id="help-modal">
+  <div id="help-content">
+    <h3 id="help-title"></h3>
+    <p id="help-text"></p>
+    <button id="help-close">Cerrar</button>
+  </div>
+</div>
+
+<!-- Loading overlay -->
+<div id="loading">
+  <div class="spinner"></div>
+  <p id="loading-msg">Generando KMZ...</p>
+</div>
+
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js');
