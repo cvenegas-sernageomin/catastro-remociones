@@ -615,6 +615,452 @@ body {
 </div>
 
   <script>
+// =====================
+// CONSTANTES Y ESTADO
+// =====================
+const TIPO_ICON_MAP = {
+  'Caída de roca': 'caida-roca',
+  'Deslizamiento traslacional': 'deslizamiento',
+  'Deslizamiento rotacional': 'deslizamiento',
+  'Flujo de detritos': 'flujo-detritos',
+  'Aluvión': 'aluvion',
+  'Avalancha de rocas': 'avalancha',
+  'Reptación': 'reptacion',
+  'Otro': 'otro'
+};
+
+const ZONA_COLOR = {
+  generacion: 'ff0000ff',
+  runout: 'ff0066ff',
+  ambas: 'ff00ccff'
+};
+
+let currentStep = 1;
+const TOTAL_STEPS = 5;
+let mapInstance = null;
+let markerInstance = null;
+let geotiffLayer = null;
+let geotiffBounds = null;
+let geotiffImageData = null;
+let fotosData = [];
+
+// =====================
+// WIZARD NAVIGATION
+// =====================
+function goToStep(n) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById(`step-${n}`).classList.add('active');
+  currentStep = n;
+
+  const pct = (n / TOTAL_STEPS) * 100;
+  document.getElementById('progress-fill').style.width = pct + '%';
+
+  const labels = ['', 'Ubicación', 'Temporalidad y Evento', 'Morfometría', 'Características y Contexto', 'Fotos y Cierre'];
+  document.getElementById('step-label').textContent = `Paso ${n} de ${TOTAL_STEPS} — ${labels[n]}`;
+
+  document.getElementById('btn-prev').style.display = n > 1 ? 'block' : 'none';
+  document.getElementById('btn-next').style.display = n < TOTAL_STEPS ? 'block' : 'none';
+  document.getElementById('btn-generate').style.display = n === TOTAL_STEPS ? 'block' : 'none';
+
+  if (n === TOTAL_STEPS) {
+    document.getElementById('hora-ingreso').value = new Date().toLocaleString('es-CL');
+    const savedAutor = localStorage.getItem('rem-autor') || '';
+    if (!document.getElementById('autor').value) {
+      document.getElementById('autor').value = savedAutor;
+    }
+  }
+
+  if (n === 1 && mapInstance) {
+    setTimeout(() => mapInstance.invalidateSize(), 100);
+  }
+
+  window.scrollTo(0, 0);
+}
+
+document.getElementById('btn-next').addEventListener('click', () => {
+  if (currentStep < TOTAL_STEPS) goToStep(currentStep + 1);
+});
+document.getElementById('btn-prev').addEventListener('click', () => {
+  if (currentStep > 1) goToStep(currentStep - 1);
+});
+
+// =====================
+// TOGGLE BUTTONS (zona, amenaza)
+// =====================
+function initToggleGroup(groupId) {
+  const group = document.getElementById(groupId);
+  group.querySelectorAll('.toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      group.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+}
+initToggleGroup('zona-toggle');
+initToggleGroup('amenaza-toggle');
+
+function getToggleValue(groupId) {
+  const active = document.querySelector(`#${groupId} .toggle-btn.active`);
+  return active ? active.dataset.val : '';
+}
+
+// =====================
+// CHIPS MULTISELECT
+// =====================
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => chip.classList.toggle('selected'));
+});
+
+function getChipsValues(groupId) {
+  return Array.from(document.querySelectorAll(`#${groupId} .chip.selected`)).map(c => c.dataset.val);
+}
+
+// =====================
+// CONDICIONALES FORMULARIO
+// =====================
+document.getElementById('fecha-rango').addEventListener('change', function() {
+  document.getElementById('fecha-fin').style.display = this.checked ? 'block' : 'none';
+});
+document.getElementById('hora-rango').addEventListener('change', function() {
+  document.getElementById('hora-fin').style.display = this.checked ? 'block' : 'none';
+});
+document.getElementById('hora-desconocida').addEventListener('change', function() {
+  document.getElementById('hora-inicio').disabled = this.checked;
+  document.getElementById('hora-rango').disabled = this.checked;
+  if (this.checked) document.getElementById('hora-fin').style.display = 'none';
+});
+document.getElementById('sismo-previo').addEventListener('change', function() {
+  document.getElementById('sismo-magnitud').style.display = this.value === 'Sí' ? 'block' : 'none';
+});
+document.getElementById('personas-afectadas').addEventListener('change', function() {
+  const show = ['Evacuados', 'Heridos', 'Fallecidos'].includes(this.value);
+  document.getElementById('num-personas').style.display = show ? 'block' : 'none';
+});
+
+// =====================
+// MORFOMETRÍA — generación dinámica
+// =====================
+const MORFO_FIELDS = [
+  { id: 'alto-corona', label: 'Alto de la corona', unit: 'm', help: 'alto-corona' },
+  { id: 'ancho-corona', label: 'Ancho de la corona', unit: 'm', help: 'ancho-corona' },
+  { id: 'longitud-total', label: 'Longitud total del movimiento', unit: 'm', help: 'longitud' },
+  { id: 'alcance', label: 'Alcance horizontal', unit: 'm', help: 'alcance' },
+  { id: 'ancho-deposito', label: 'Ancho del depósito', unit: 'm', help: 'ancho-deposito' },
+  { id: 'espesor-deposito', label: 'Espesor del depósito', unit: 'm', help: 'espesor' },
+  { id: 'pendiente-gen', label: 'Pendiente zona generación', unit: '°', help: 'pendiente-gen' },
+  { id: 'pendiente-dep', label: 'Pendiente zona depósito', unit: '°', help: 'pendiente-dep' },
+];
+
+const morfoContainer = document.getElementById('morfometria-fields');
+MORFO_FIELDS.forEach(f => {
+  const div = document.createElement('div');
+  div.className = 'field';
+  div.innerHTML = `
+    <label>${f.label} (${f.unit}) <button type="button" class="help-btn" data-help="${f.help}" aria-label="Ayuda: ${f.label}">?</button></label>
+    <div class="field-row">
+      <input type="number" id="${f.id}" min="0" step="0.1" placeholder="ej: 10" style="flex:1">
+      <label style="font-size:0.8rem;white-space:nowrap">
+        <input type="checkbox" id="${f.id}-est"> est.
+      </label>
+    </div>`;
+  morfoContainer.appendChild(div);
+});
+
+function getMorfoValue(id) {
+  const val = document.getElementById(id)?.value;
+  const est = document.getElementById(`${id}-est`)?.checked;
+  if (!val) return null;
+  return { valor: parseFloat(val), estimado: est };
+}
+
+// =====================
+// FOTOS
+// =====================
+document.getElementById('btn-add-foto').addEventListener('click', () => {
+  if (fotosData.length >= 5) return;
+  const idx = fotosData.length;
+  fotosData.push({ blob: null, desc: '' });
+
+  const div = document.createElement('div');
+  div.className = 'foto-item';
+  div.id = `foto-item-${idx}`;
+  div.innerHTML = `
+    <input type="file" id="foto-file-${idx}" accept="image/*" capture="environment" style="display:none">
+    <button type="button" onclick="document.getElementById('foto-file-${idx}').click()"
+      style="background:var(--light);border:none;border-radius:8px;color:var(--text);cursor:pointer;padding:10px;width:100%">
+      📷 Seleccionar foto ${idx + 1}
+    </button>
+    <img id="foto-preview-${idx}" class="foto-preview">
+    <input type="text" id="foto-desc-${idx}" placeholder="Descripción de la foto..." style="background:var(--dark);border:1px solid var(--light);border-radius:6px;color:var(--text);padding:8px;width:100%">
+  `;
+  document.getElementById('fotos-container').appendChild(div);
+
+  document.getElementById(`foto-file-${idx}`).addEventListener('change', async function() {
+    const file = this.files[0];
+    if (!file) return;
+    const compressed = await compressImage(file, 1024);
+    fotosData[idx].blob = compressed;
+    const url = URL.createObjectURL(compressed);
+    const preview = document.getElementById(`foto-preview-${idx}`);
+    preview.src = url;
+    preview.classList.add('loaded');
+  });
+
+  document.getElementById(`foto-desc-${idx}`).addEventListener('input', function() {
+    fotosData[idx].desc = this.value;
+  });
+
+  if (fotosData.length >= 5) {
+    document.getElementById('btn-add-foto').style.display = 'none';
+  }
+});
+
+async function compressImage(file, maxKB) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let w = img.width, h = img.height;
+      const maxPx = 1600;
+      if (w > maxPx || h > maxPx) {
+        if (w > h) { h = Math.round(h * maxPx / w); w = maxPx; }
+        else { w = Math.round(w * maxPx / h); h = maxPx; }
+      }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+
+      let quality = 0.85;
+      const tryCompress = () => {
+        canvas.toBlob(blob => {
+          if (blob.size > maxKB * 1024 && quality > 0.4) {
+            quality -= 0.1;
+            tryCompress();
+          } else {
+            URL.revokeObjectURL(url);
+            resolve(blob);
+          }
+        }, 'image/jpeg', quality);
+      };
+      tryCompress();
+    };
+    img.src = url;
+  });
+}
+
+document.getElementById('autor').addEventListener('input', function() {
+  localStorage.setItem('rem-autor', this.value);
+});
+
+// =====================
+// MAPA LEAFLET + GPS
+// =====================
+function initMap() {
+  mapInstance = L.map('map', {
+    center: [-33.45, -70.65],
+    zoom: 13,
+    zoomControl: true
+  });
+
+  const ESRI_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+
+  const esriTile = L.tileLayer(ESRI_URL, {
+    attribution: 'Tiles © Esri',
+    maxZoom: 19,
+    crossOrigin: false
+  });
+  esriTile.addTo(mapInstance);
+
+  markerInstance = L.marker([-33.45, -70.65], { draggable: true }).addTo(mapInstance);
+  markerInstance.on('dragend', updateCoordsDisplay);
+
+  locateGPS();
+}
+
+function locateGPS() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude: lat, longitude: lng } = pos.coords;
+    mapInstance.setView([lat, lng], 16);
+    markerInstance.setLatLng([lat, lng]);
+    updateCoordsDisplay();
+  }, err => {
+    console.warn('GPS no disponible:', err.message);
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
+function updateCoordsDisplay() {
+  const ll = markerInstance.getLatLng();
+  document.getElementById('coords-display').textContent =
+    `📍 Lat: ${ll.lat.toFixed(6)}  Lon: ${ll.lng.toFixed(6)}`;
+}
+
+function getCoords() {
+  const ll = markerInstance.getLatLng();
+  return { lat: ll.lat, lon: ll.lng };
+}
+
+document.getElementById('btn-gps').addEventListener('click', locateGPS);
+
+if (navigator.onLine) {
+  document.getElementById('btn-download-tiles').style.display = 'block';
+}
+
+document.addEventListener('DOMContentLoaded', initMap);
+
+// =====================
+// SISTEMA DE AYUDA
+// =====================
+const HELP_TEXTS = {
+  zona: {
+    title: 'Zona del evento',
+    text: 'Generación: donde se originó el movimiento (escarpe, corona). Runout: la zona donde se depositó o llegó el material. Ambas: si el área observada incluye origen y depósito.'
+  },
+  fecha: {
+    title: 'Fecha del evento',
+    text: 'Ingresa la fecha en que ocurrió el evento. Si no la sabes con exactitud, marca "Aproximada". Si fue durante un período (ej: entre dos días de lluvia), marca "Rango" e ingresa fecha inicio y fin.'
+  },
+  hora: {
+    title: 'Hora del evento',
+    text: 'Hora en que ocurrió el movimiento. Si es desconocida, marca "Desconocida". Si ocurrió en un intervalo (ej: entre las 3am y el amanecer), marca "Rango".'
+  },
+  desencadenante: {
+    title: 'Desencadenante',
+    text: 'Factor que gatilló el movimiento. Lluvia intensa: precipitación reciente significativa. Sismo: temblor previo al evento. Deshielo: fusión de nieve/hielo. Antrópico: causa humana (excavación, riego, etc.).'
+  },
+  tipo: {
+    title: 'Tipo de movimiento',
+    text: 'Caída de roca: bloques que caen libremente. Deslizamiento: masa que se desplaza sobre una superficie. Flujo de detritos: material mezclado con agua que fluye rápido. Aluvión: flujo muy rápido en cauce. Reptación: movimiento muy lento del suelo.'
+  },
+  'alto-corona': {
+    title: 'Alto de la corona',
+    text: 'Altura vertical del escarpe donde se originó el movimiento, medida desde la base del corte hasta el borde superior. Si no puedes medirlo, estímalo visualmente y marca "est.".'
+  },
+  'ancho-corona': {
+    title: 'Ancho de la corona',
+    text: 'Ancho horizontal del escarpe de arranque, medido a lo largo del borde superior del corte. Representa qué tan ancho fue el material que se desprendió.'
+  },
+  longitud: {
+    title: 'Longitud total del movimiento',
+    text: 'Distancia desde la parte más alta del escarpe hasta el punto más lejano del depósito, medida a lo largo del camino del movimiento.'
+  },
+  alcance: {
+    title: 'Alcance horizontal',
+    text: 'Distancia horizontal (en planta/mapa) desde el pie del escarpe hasta el extremo distal del depósito. Indica hasta dónde llegó el material.'
+  },
+  'ancho-deposito': {
+    title: 'Ancho del depósito',
+    text: 'Ancho máximo de la zona donde quedó depositado el material. Medir en la parte más ancha del depósito.'
+  },
+  espesor: {
+    title: 'Espesor del depósito',
+    text: 'Grosor promedio o máximo de la acumulación de material. Puede estimarse observando la diferencia de nivel respecto al terreno original.'
+  },
+  'pendiente-gen': {
+    title: 'Pendiente zona de generación',
+    text: 'Ángulo de inclinación (en grados) del talud donde se originó el movimiento. Idealmente medido con clinómetro; si no, estimar comparando con referencias conocidas.'
+  },
+  'pendiente-dep': {
+    title: 'Pendiente zona de depósito',
+    text: 'Ángulo de inclinación (en grados) de la zona donde se acumuló el material. Suele ser más plana que la zona de generación.'
+  },
+  granulometria: {
+    title: 'Granulometría dominante',
+    text: 'Tamaño de las partículas que componen principalmente el depósito. Selecciona todos los que sean importantes. Bloques: >25 cm. Gravas: 2-25 cm. Arenas: 0.06-2 mm. Limos/arcillas: muy fino.'
+  },
+  bloques: {
+    title: 'Tamaño máximo de bloques',
+    text: 'El bloque de roca más grande que puedas observar en el depósito, medido en su dimensión mayor. Estima en centímetros (ej: 80) o metros si son muy grandes (ej: 500 cm = 5 m).'
+  },
+  proporcion: {
+    title: 'Proporción de bloques',
+    text: 'Estimación visual de qué porcentaje del depósito son bloques grandes, versus material fino (tierra, arena, etc.). Ej: 30% significa que aproximadamente un tercio del material son bloques.'
+  },
+  humedad: {
+    title: 'Humedad del material',
+    text: 'Seco: sin humedad visible. Húmedo: mojado pero cohesivo. Saturado: empapado, agua escurre al presionar. Fluidizado: el material fluye casi como líquido.'
+  },
+  sorting: {
+    title: 'Clasificación del material (Sorting)',
+    text: 'Bien clasificado: el material es bastante uniforme en tamaño. Mal clasificado: hay mezcla de tamaños pero con cierto orden. Caótico: hay de todo revuelto — bloques grandes, tierra fina, ramas — sin ningún orden.'
+  },
+  litologia: {
+    title: 'Litología del talud',
+    text: 'Tipo de roca o material que conforma el talud donde se originó el movimiento. Observar el escarpe y el material movilizado para identificarla.'
+  },
+  orientacion: {
+    title: 'Orientación del escarpe',
+    text: 'Dirección hacia donde "mira" el escarpe, en grados desde el Norte (0°=Norte, 90°=Este, 180°=Sur, 270°=Oeste). Indica la orientación de la cara del talud que colapsó.'
+  },
+  estructuras: {
+    title: 'Estructuras geológicas',
+    text: 'Fallas: fracturas con desplazamiento. Diaclasas: fracturas sin desplazamiento (grietas). Foliación: capas o planos en rocas metamórficas. Estas estructuras pueden controlar la dirección del movimiento.'
+  },
+  vegetacion: {
+    title: 'Cobertura vegetal',
+    text: 'Tipo de vegetación presente en el talud antes del evento. La falta de vegetación puede indicar movimientos previos o terrenos más susceptibles.'
+  },
+  lluvia: {
+    title: 'Lluvia previa intensa',
+    text: '¿Hubo precipitación intensa en los días previos al evento? Esto es un factor desencadenante muy común en remociones en masa.'
+  },
+  sismo: {
+    title: 'Sismo previo',
+    text: '¿Ocurrió un temblor antes del evento? Si es así, indica la magnitud aproximada si la conoces (puedes consultar el CSN en csn.uchile.cl).'
+  },
+  antropico: {
+    title: 'Intervención antrópica',
+    text: '¿Hay evidencias de actividad humana previa que pudiera haber contribuido al movimiento? Ej: corte de talud para construir un camino, relleno de terreno, canales de riego cercanos.'
+  },
+  amenaza: {
+    title: '¿Amenaza activa?',
+    text: 'CRÍTICO: ¿El talud muestra señales de que podría seguir moviéndose? Señales: grietas nuevas, ruidos, material suelto, agua brotando. Si hay duda, marca "Incierta". Esta información es esencial para la seguridad de personas cercanas.'
+  },
+  personas: {
+    title: 'Personas afectadas',
+    text: 'Evacuados: personas que tuvieron que abandonar sus hogares por el evento. Heridos: personas con lesiones. Fallecidos: víctimas fatales. Indica el número total en el campo numérico.'
+  },
+  infraestructura: {
+    title: 'Infraestructura afectada',
+    text: 'Selecciona todos los tipos de infraestructura que fueron dañados o interrumpidos por el evento.'
+  },
+  distancia: {
+    title: 'Distancia a primera vivienda',
+    text: 'Distancia en metros desde el borde del depósito hasta la vivienda, edificio o infraestructura más cercana. Permite evaluar el riesgo residual.'
+  },
+  efectos: {
+    title: 'Efectos observados',
+    text: 'Describe en tus propias palabras los efectos del evento: daños materiales, interrupciones de servicios, alteraciones al terreno. Sé lo más específico posible (ej: "corte total de Ruta 5 Sur km 320, tránsito interrumpido").'
+  },
+  otros: {
+    title: 'Otras observaciones',
+    text: 'Cualquier información adicional relevante que no encaje en los campos anteriores: evidencias de eventos previos en el mismo lugar, condiciones del terreno inusuales, información aportada por testigos locales, etc.'
+  },
+  autor: {
+    title: 'Autor del registro',
+    text: 'Tu nombre completo. Se guardará automáticamente para los próximos registros en este dispositivo.'
+  }
+};
+
+document.addEventListener('click', function(e) {
+  if (e.target.classList.contains('help-btn')) {
+    const key = e.target.dataset.help;
+    const entry = HELP_TEXTS[key];
+    if (!entry) return;
+    document.getElementById('help-title').textContent = entry.title;
+    document.getElementById('help-text').textContent = entry.text;
+    document.getElementById('help-modal').classList.add('open');
+  }
+});
+document.getElementById('help-close').addEventListener('click', () => {
+  document.getElementById('help-modal').classList.remove('open');
+});
+document.getElementById('help-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.classList.remove('open');
+});
+  </script>
+
+  <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js');
     }
