@@ -109,7 +109,8 @@ body {
 }
 .field textarea { min-height: 80px; resize: vertical; }
 .field input:focus, .field select:focus, .field textarea:focus {
-  outline: none;
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
   border-color: var(--red);
 }
 
@@ -125,7 +126,8 @@ body {
   line-height: 18px;
   min-width: 18px;
   text-align: center;
-  padding: 0;
+  padding: 13px;
+  margin: -13px;
   flex-shrink: 0;
 }
 
@@ -403,11 +405,11 @@ body {
   <div class="field">
     <label>Granulometría dominante <button class="help-btn" data-help="granulometria">?</button></label>
     <div class="chips-group" id="granulometria-chips">
-      <span class="chip" data-val="bloques">Bloques</span>
-      <span class="chip" data-val="gravas">Gravas</span>
-      <span class="chip" data-val="arenas">Arenas</span>
-      <span class="chip" data-val="limos">Limos</span>
-      <span class="chip" data-val="arcillas">Arcillas</span>
+      <button type="button" class="chip" data-val="bloques">Bloques</button>
+      <button type="button" class="chip" data-val="gravas">Gravas</button>
+      <button type="button" class="chip" data-val="arenas">Arenas</button>
+      <button type="button" class="chip" data-val="limos">Limos</button>
+      <button type="button" class="chip" data-val="arcillas">Arcillas</button>
     </div>
   </div>
 
@@ -466,10 +468,10 @@ body {
   <div class="field">
     <label>Estructuras geológicas <button class="help-btn" data-help="estructuras">?</button></label>
     <div class="chips-group" id="estructuras-chips">
-      <span class="chip" data-val="fallas">Fallas</span>
-      <span class="chip" data-val="diaclasas">Diaclasas</span>
-      <span class="chip" data-val="foliacion">Foliación</span>
-      <span class="chip" data-val="sin-estructuras">Sin estructuras visibles</span>
+      <button type="button" class="chip" data-val="fallas">Fallas</button>
+      <button type="button" class="chip" data-val="diaclasas">Diaclasas</button>
+      <button type="button" class="chip" data-val="foliacion">Foliación</button>
+      <button type="button" class="chip" data-val="sin-estructuras">Sin estructuras visibles</button>
     </div>
   </div>
 
@@ -545,11 +547,11 @@ body {
   <div class="field">
     <label>Infraestructura afectada <button class="help-btn" data-help="infraestructura">?</button></label>
     <div class="chips-group" id="infra-chips">
-      <span class="chip" data-val="viviendas">Viviendas</span>
-      <span class="chip" data-val="carretera">Carretera</span>
-      <span class="chip" data-val="puente">Puente</span>
-      <span class="chip" data-val="electrica">Línea eléctrica</span>
-      <span class="chip" data-val="otro">Otro</span>
+      <button type="button" class="chip" data-val="viviendas">Viviendas</button>
+      <button type="button" class="chip" data-val="carretera">Carretera</button>
+      <button type="button" class="chip" data-val="puente">Puente</button>
+      <button type="button" class="chip" data-val="electrica">Línea eléctrica</button>
+      <button type="button" class="chip" data-val="otro">Otro</button>
     </div>
   </div>
 
