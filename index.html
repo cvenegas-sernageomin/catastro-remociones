@@ -1090,7 +1090,9 @@ async function captureSatelitalBase64() {
 // =====================
 // CONSTRUCCIÓN DEL KML
 // =====================
-function buildKML(data, fotoFilenames, satelitalFilename, geotiffFilename) {
+function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
+  const escapeHtml = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const escapeXml = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const coords = data.coords;
   const zona = data.zona || 'generacion';
   const tipo = data['tipo-movimiento'] || 'Otro';
@@ -1119,9 +1121,8 @@ function buildKML(data, fotoFilenames, satelitalFilename, geotiffFilename) {
     return row(f.label, `${v.valor} ${f.unit}${v.estimado ? ' (est.)' : ''}`);
   }).join('');
 
-  const fotosHTML = fotoFilenames.map((fname, i) => {
-    const desc = data.fotos[i]?.desc || '';
-    return `<p><img src="${fname}" style="max-width:100%;border-radius:6px;margin:8px 0"><br><i>${desc}</i></p>`;
+  const fotosHTML = fotoEntries.map(({ fname, desc }) => {
+    return `<p><img src="${fname}" style="max-width:100%;border-radius:6px;margin:8px 0"><br><i>${escapeHtml(desc)}</i></p>`;
   }).join('');
 
   const satelitalHTML = satelitalFilename
@@ -1162,7 +1163,7 @@ function buildKML(data, fotoFilenames, satelitalFilename, geotiffFilename) {
 <h3 style="color:#555;margin-top:12px">🌧️ Condiciones previas</h3>
 <table style="border-collapse:collapse;width:100%">
   ${row('Lluvia previa intensa', data['lluvia-previa'])}
-  ${row('Sismo previo', data['sismo-previo'] + (data['sismo-magnitud'] ? ` (Mw ${data['sismo-magnitud']})` : ''))}
+  ${row('Sismo previo', data['sismo-previo'] ? (data['sismo-previo'] + (data['sismo-magnitud'] ? ` (Mw ${data['sismo-magnitud']})` : '')) : null)}
   ${row('Intervención antrópica', data.antropico)}
 </table>
 <h3 style="color:#555;margin-top:12px">⚠️ Contexto de riesgo</h3>
@@ -1172,10 +1173,10 @@ function buildKML(data, fotoFilenames, satelitalFilename, geotiffFilename) {
   ${row('Infraestructura', data.infraestructura?.join(', '))}
   ${row('Dist. a vivienda', data['dist-vivienda'] ? data['dist-vivienda'] + ' m' : null)}
 </table>
-${data.efectos ? `<h3 style="color:#555;margin-top:12px">📝 Efectos</h3><p>${data.efectos}</p>` : ''}
-${data.otros ? `<h3 style="color:#555;margin-top:12px">💬 Otros</h3><p>${data.otros}</p>` : ''}
+${data.efectos ? `<h3 style="color:#555;margin-top:12px">📝 Efectos</h3><p>${escapeHtml(data.efectos)}</p>` : ''}
+${data.otros ? `<h3 style="color:#555;margin-top:12px">💬 Otros</h3><p>${escapeHtml(data.otros)}</p>` : ''}
 <hr style="margin:16px 0">
-<p style="color:#888;font-size:11px">Autor: ${data.autor || 'No registrado'} | Ingreso: ${data['hora-ingreso']}</p>
+<p style="color:#888;font-size:11px">Autor: ${escapeHtml(data.autor) || 'No registrado'} | Ingreso: ${escapeHtml(data['hora-ingreso'])}</p>
 ${fotosHTML}
 ${satelitalHTML}
 </body></html>
@@ -1196,7 +1197,7 @@ ${satelitalHTML}
   return `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
 <Document>
-  <name>${tipo} — ${data['fecha-inicio'] || 'Sin fecha'}</name>
+  <name>${escapeXml(tipo)} — ${escapeXml(data['fecha-inicio'] || 'Sin fecha')}</name>
   <Style id="event-style">
     <IconStyle>
       <color>${kmlColor}</color>
@@ -1209,7 +1210,7 @@ ${satelitalHTML}
     </BalloonStyle>
   </Style>
   <Placemark>
-    <name>${tipo} — ${fechaStr}</name>
+    <name>${escapeXml(tipo)} — ${escapeXml(fechaStr)}</name>
     <styleUrl>#event-style</styleUrl>
     <description>${description}</description>
     <Point>
@@ -1219,6 +1220,25 @@ ${satelitalHTML}
   ${groundOverlay}
 </Document>
 </kml>`;
+}
+
+// =====================
+// GENERAR ICONO PNG
+// =====================
+async function generateIconPng(zona) {
+  const colors = { generacion: '#e63946', runout: '#f4a261', ambas: '#f1c40f' };
+  const color = colors[zona] || colors.generacion;
+  const canvas = document.createElement('canvas');
+  canvas.width = 32; canvas.height = 32;
+  const ctx = canvas.getContext('2d');
+  ctx.beginPath();
+  ctx.arc(16, 16, 14, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = 'white';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
 }
 
 // =====================
@@ -1276,11 +1296,11 @@ async function generateKMZ() {
     loadingMsg.textContent = 'Creando KMZ...';
     const zip = new JSZip();
 
-    const fotoFilenames = [];
+    const fotoEntries = [];
     for (let i = 0; i < fotosData.length; i++) {
       if (fotosData[i].blob) {
         const fname = `foto_${i + 1}.jpg`;
-        fotoFilenames.push(fname);
+        fotoEntries.push({ fname, desc: fotosData[i].desc || '' });
         zip.file(fname, fotosData[i].blob);
       }
     }
@@ -1299,14 +1319,11 @@ async function generateKMZ() {
 
     const tipoKey = TIPO_ICON_MAP[data['tipo-movimiento']] || 'otro';
     try {
-      const iconResp = await fetch(`icons/${tipoKey}.svg`);
-      if (iconResp.ok) {
-        const iconBlob = await iconResp.blob();
-        zip.folder('icons').file(`${tipoKey}.png`, iconBlob);
-      }
+      const iconPngBlob = await generateIconPng(data.zona);
+      zip.folder('icons').file(`${tipoKey}.png`, iconPngBlob);
     } catch {}
 
-    const kmlStr = buildKML(data, fotoFilenames, satelitalFilename, geotiffFilename);
+    const kmlStr = buildKML(data, fotoEntries, satelitalFilename, geotiffFilename);
     zip.file('doc.kml', kmlStr);
 
     const tipo = (data['tipo-movimiento'] || 'evento').toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
@@ -1322,7 +1339,7 @@ async function generateKMZ() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 
   } catch (err) {
     alert('Error al generar KMZ: ' + err.message);
