@@ -720,7 +720,10 @@ body {
     <input type="text" id="hora-ingreso" readonly style="color:var(--muted)">
   </div>
 
-  <button class="btn-generate" id="btn-generate">⬇️ Generar KMZ</button>
+  <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+    <button class="btn-generate" id="btn-generate" style="flex:1;min-width:140px">⬇️ Generar KMZ</button>
+    <button class="btn-generate" id="btn-pdf" style="flex:1;min-width:140px;background:var(--surface2);color:var(--fg);border:1px solid var(--border)">🖨️ Informe PDF</button>
+  </div>
 </div>
 
 <!-- Navigation -->
@@ -1083,27 +1086,96 @@ function getEstDipValues() {
 // =====================
 // FOTOS
 // =====================
+async function captureAzimuth() {
+  // iOS permission (reuse orientPermissionGranted)
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    if (!orientPermissionGranted) {
+      try {
+        const perm = await DeviceOrientationEvent.requestPermission();
+        if (perm !== 'granted') return null;
+        orientPermissionGranted = true;
+      } catch { return null; }
+    }
+  }
+  return new Promise(resolve => {
+    const readings = [];
+    const handler = (e) => {
+      if (e.alpha !== null) readings.push(e.alpha);
+      if (readings.length >= 3) {
+        window.removeEventListener('deviceorientation', handler);
+        resolve(Math.round(readings.reduce((s, v) => s + v, 0) / readings.length) % 360);
+      }
+    };
+    window.addEventListener('deviceorientation', handler);
+    setTimeout(() => { window.removeEventListener('deviceorientation', handler); resolve(null); }, 4000);
+  });
+}
+
 document.getElementById('btn-add-foto').addEventListener('click', () => {
   if (fotosData.length >= 5) return;
   const idx = fotosData.length;
-  fotosData.push({ blob: null, desc: '' });
+  fotosData.push({ blob: null, desc: '', azimuth: null });
 
   const div = document.createElement('div');
   div.className = 'foto-item';
   div.id = `foto-item-${idx}`;
+  div.style.cssText = 'border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px';
   div.innerHTML = `
     <input type="file" id="foto-file-${idx}" accept="image/*" capture="environment" style="display:none">
     <button type="button" id="foto-btn-${idx}"
-      style="background:var(--light);border:none;border-radius:8px;color:var(--text);cursor:pointer;padding:10px;width:100%">
-      📷 Seleccionar foto ${idx + 1}
+      style="background:var(--surface2);border:1px dashed var(--border);border-radius:8px;color:var(--fg);cursor:pointer;padding:10px;width:100%;font-size:0.9rem">
+      📷 Foto ${idx + 1}
     </button>
     <img id="foto-preview-${idx}" class="foto-preview">
-    <input type="text" id="foto-desc-${idx}" placeholder="Descripción de la foto..." style="background:var(--dark);border:1px solid var(--light);border-radius:6px;color:var(--text);padding:8px;width:100%">
-  `;
+    <input type="text" id="foto-desc-${idx}" placeholder="Descripción de la foto..." style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--fg);padding:8px;width:100%;box-sizing:border-box;margin-top:6px">
+    <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+      <label style="font-size:0.8rem;color:var(--muted);white-space:nowrap">🧭 Azimuth:</label>
+      <input type="number" id="foto-az-${idx}" min="0" max="359" placeholder="°N" style="width:70px;padding:7px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
+      <button type="button" id="foto-az-btn-${idx}" style="padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:0.9rem;white-space:nowrap">📡 Capturar</button>
+      <span id="foto-az-dir-${idx}" style="font-size:0.8rem;color:var(--muted)"></span>
+    </div>`;
   document.getElementById('fotos-container').appendChild(div);
 
-  document.getElementById(`foto-btn-${idx}`).addEventListener('click', () => {
+  const azInput = document.getElementById(`foto-az-${idx}`);
+  const azDir   = document.getElementById(`foto-az-dir-${idx}`);
+
+  const cardinalDir = (az) => {
+    const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'];
+    return dirs[Math.round(az / 22.5) % 16];
+  };
+
+  azInput.addEventListener('input', () => {
+    const v = parseInt(azInput.value);
+    fotosData[idx].azimuth = isNaN(v) ? null : v;
+    azDir.textContent = isNaN(v) ? '' : cardinalDir(v);
+  });
+
+  document.getElementById(`foto-az-btn-${idx}`).addEventListener('click', async () => {
+    const btn = document.getElementById(`foto-az-btn-${idx}`);
+    btn.textContent = '⏳';
+    btn.disabled = true;
+    const az = await captureAzimuth();
+    btn.textContent = '📡 Capturar';
+    btn.disabled = false;
+    if (az !== null) {
+      azInput.value = az;
+      fotosData[idx].azimuth = az;
+      azDir.textContent = cardinalDir(az);
+    } else {
+      alert('No se detectó brújula. Ingresa el azimuth manualmente.');
+    }
+  });
+
+  document.getElementById(`foto-btn-${idx}`).addEventListener('click', async () => {
+    // Captura azimuth automáticamente al abrir la cámara
     document.getElementById(`foto-file-${idx}`).click();
+    const az = await captureAzimuth();
+    if (az !== null && !fotosData[idx].azimuth) {
+      azInput.value = az;
+      fotosData[idx].azimuth = az;
+      azDir.textContent = cardinalDir(az);
+    }
   });
 
   document.getElementById(`foto-file-${idx}`).addEventListener('change', async function() {
@@ -1501,8 +1573,9 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
     return row(f.label, `${v.valor} ${f.unit}${v.estimado ? ' (est.)' : ''}`);
   }).join('');
 
-  const fotosHTML = fotoEntries.map(({ fname, desc }) => {
-    return `<p><img src="${fname}" style="max-width:100%;border-radius:6px;margin:8px 0"><br><i>${escapeHtml(desc)}</i></p>`;
+  const fotosHTML = fotoEntries.map(({ fname, desc, azimuth }) => {
+    const azStr = azimuth !== null && azimuth !== undefined ? ` &nbsp;🧭 ${azimuth}°N` : '';
+    return `<p><img src="${fname}" style="max-width:100%;border-radius:6px;margin:8px 0"><br><i>${escapeHtml(desc)}${azStr}</i></p>`;
   }).join('');
 
   const satelitalHTML = satelitalFilename
@@ -1781,7 +1854,7 @@ async function generateKMZ() {
     for (let i = 0; i < fotosData.length; i++) {
       if (fotosData[i].blob) {
         const fname = `foto_${i + 1}.jpg`;
-        fotoEntries.push({ fname, desc: fotosData[i].desc || '' });
+        fotoEntries.push({ fname, desc: fotosData[i].desc || '', azimuth: fotosData[i].azimuth ?? null });
         zip.file(fname, fotosData[i].blob);
       }
     }
@@ -1831,6 +1904,200 @@ async function generateKMZ() {
 }
 
 document.getElementById('btn-generate').addEventListener('click', generateKMZ);
+
+// =====================
+// INFORME PDF
+// =====================
+document.getElementById('btn-pdf').addEventListener('click', generatePDF);
+
+function collectFormData() {
+  return {
+    coords: markerInstance ? markerInstance.getLatLng() : null,
+    zona: getToggleValue('zona-toggle'),
+    'fecha-inicio': document.getElementById('fecha-inicio')?.value,
+    'fecha-aprox': document.getElementById('fecha-aprox')?.checked,
+    'fecha-fin': document.getElementById('fecha-fin')?.value,
+    'hora-inicio': document.getElementById('hora-inicio')?.value,
+    'hora-desconocida': document.getElementById('hora-desconocida')?.checked,
+    'hora-fin': document.getElementById('hora-fin')?.value,
+    desencadenante: document.getElementById('desencadenante')?.value,
+    'tipo-movimiento': document.getElementById('tipo-movimiento')?.value,
+    ...Object.fromEntries(currentMorfoFields.map(f => [f.id, getMorfoValue(f.id)])),
+    granulometria: getChipsValues('granulometria-chips'),
+    plasticidad: getToggleValue('plasticidad-toggle'),
+    'tamano-bloques': document.getElementById('tamano-bloques')?.value,
+    'prop-bloques': document.getElementById('prop-bloques')?.value,
+    humedad: document.getElementById('humedad')?.value,
+    sorting: document.getElementById('sorting')?.value,
+    'tipo-ladera': document.getElementById('tipo-ladera')?.value,
+    'geometria-ladera': getChipsValues('geometria-ladera-chips'),
+    'estado-escarpe': document.getElementById('estado-escarpe')?.value,
+    litologia: document.getElementById('litologia')?.value,
+    'suelo-adicional': document.getElementById('suelo-adicional')?.value,
+    'grado-alteracion': document.getElementById('grado-alteracion')?.value,
+    orientacion: document.getElementById('orientacion')?.value,
+    estructuras: getChipsValues('estructuras-chips'),
+    'estructuras-dip': getEstDipValues(),
+    vegetacion: document.getElementById('vegetacion')?.value,
+    'lluvia-previa': document.getElementById('lluvia-previa')?.value,
+    'sismo-previo': document.getElementById('sismo-previo')?.value,
+    'sismo-magnitud': document.getElementById('sismo-magnitud')?.value,
+    antropico: document.getElementById('antropico')?.value,
+    amenaza: getToggleValue('amenaza-toggle'),
+    'personas-afectadas': document.getElementById('personas-afectadas')?.value,
+    'num-personas': document.getElementById('num-personas')?.value,
+    infraestructura: getChipsValues('infra-chips'),
+    'dist-vivienda': document.getElementById('dist-vivienda')?.value,
+    efectos: document.getElementById('efectos')?.value,
+    otros: document.getElementById('otros')?.value,
+    autor: document.getElementById('autor')?.value,
+    'hora-ingreso': document.getElementById('hora-ingreso')?.value,
+  };
+}
+
+async function generatePDF() {
+  const data = collectFormData();
+  const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  const fila = (label, val) => val
+    ? `<tr><td class="lbl">${esc(label)}</td><td>${esc(String(val))}</td></tr>`
+    : '';
+
+  const fechaStr = (() => {
+    let s = data['fecha-inicio'] || 'No registrada';
+    if (data['fecha-aprox']) s += ' (aprox.)';
+    if (data['fecha-fin']) s += ' — ' + data['fecha-fin'];
+    return s;
+  })();
+
+  const horaStr = data['hora-desconocida'] ? 'Desconocida'
+    : (data['hora-inicio'] || 'No registrada') + (data['hora-fin'] ? ' — ' + data['hora-fin'] : '');
+
+  const morfoRows = currentMorfoFields.map(f => {
+    const v = data[f.id];
+    return v ? fila(f.label, `${v.valor} ${f.unit}${v.estimado ? ' (est.)' : ''}`) : '';
+  }).join('');
+
+  const estDipRows = (data['estructuras-dip'] || []).map(e =>
+    fila(`↗ ${e.tipo || 'Estructura'}`, `${e.dipDir || '?'}°N / ${e.dip || '?'}°`)
+  ).join('');
+
+  // Fotos como base64 data URLs
+  const fotosHtml = await Promise.all(fotosData.map(async (f, i) => {
+    if (!f.blob) return '';
+    const b64 = await new Promise(res => {
+      const r = new FileReader();
+      r.onload = e => res(e.target.result);
+      r.readAsDataURL(f.blob);
+    });
+    const azStr = f.azimuth !== null && f.azimuth !== undefined
+      ? `<span class="az">🧭 ${f.azimuth}°N</span>` : '';
+    return `<div class="foto-block">
+      <img src="${b64}">
+      <p class="foto-cap"><b>Foto ${i+1}</b>${f.desc ? ': ' + esc(f.desc) : ''} ${azStr}</p>
+    </div>`;
+  }));
+
+  const coordStr = data.coords
+    ? `${data.coords.lat.toFixed(6)}, ${data.coords.lng.toFixed(6)}`
+    : 'No registradas';
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+<title>Informe Remoción en Masa</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: Arial, sans-serif; font-size: 11pt; color: #111; padding: 20mm 18mm; }
+  h1 { font-size: 16pt; color: #c0392b; border-bottom: 2px solid #c0392b; padding-bottom: 6px; margin-bottom: 12px; }
+  h2 { font-size: 12pt; color: #333; background: #f0f0f0; padding: 5px 8px; margin: 14px 0 6px; border-left: 4px solid #c0392b; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  td { padding: 4px 8px; border-bottom: 1px solid #e0e0e0; vertical-align: top; }
+  td.lbl { width: 38%; font-weight: bold; color: #555; white-space: nowrap; }
+  .header-meta { display: flex; justify-content: space-between; font-size: 9pt; color: #666; margin-bottom: 14px; }
+  .foto-block { margin: 10px 0; page-break-inside: avoid; }
+  .foto-block img { max-width: 100%; max-height: 220px; border-radius: 6px; object-fit: cover; }
+  .foto-cap { font-size: 9pt; color: #555; margin-top: 4px; }
+  .az { background: #eaf4fb; border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+  .fotos-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .amenaza-si { color: red; font-weight: bold; }
+  .amenaza-incierta { color: orange; font-weight: bold; }
+  @media print {
+    body { padding: 12mm 14mm; }
+    @page { margin: 10mm; }
+  }
+</style></head><body>
+<h1>Ficha de Catastro — Remoción en Masa</h1>
+<div class="header-meta">
+  <span>SERNAGEOMIN</span>
+  <span>Generado: ${new Date().toLocaleString('es-CL')}</span>
+  <span>Autor: ${esc(data.autor) || 'No registrado'}</span>
+</div>
+
+<h2>📍 Ubicación y Evento</h2>
+<table>
+  ${fila('Coordenadas (lat, lon)', coordStr)}
+  ${fila('Zona del evento', data.zona)}
+  ${fila('Fecha', fechaStr)}
+  ${fila('Hora', horaStr)}
+  ${fila('Desencadenante', data.desencadenante)}
+  ${fila('Tipo de movimiento', data['tipo-movimiento'])}
+</table>
+
+<h2>📐 Morfometría</h2>
+<table>${morfoRows || '<tr><td colspan="2" style="color:#aaa">No registrada</td></tr>'}</table>
+
+<h2>🪨 Características del Depósito</h2>
+<table>
+  ${fila('Granulometría', data.granulometria?.join(', '))}
+  ${fila('Plasticidad', data.plasticidad)}
+  ${fila('Tamaño máx. bloques', data['tamano-bloques'] ? data['tamano-bloques'] + ' cm' : null)}
+  ${fila('Proporción bloques', data['prop-bloques'] ? data['prop-bloques'] + '%' : null)}
+  ${fila('Humedad (al momento de visita)', data.humedad)}
+  ${fila('Sorting', data.sorting)}
+</table>
+
+<h2>⛰️ Zona de Generación / Talud / Escarpe</h2>
+<table>
+  ${fila('Tipo de ladera', data['tipo-ladera'])}
+  ${fila('Geometría ladera', data['geometria-ladera']?.join(', '))}
+  ${fila('Estado del escarpe', data['estado-escarpe'])}
+  ${fila('Litología dominante', data.litologia)}
+  ${fila('Suelo sobre roca', data['suelo-adicional'])}
+  ${fila('Alteración / meteorización', data['grado-alteracion'])}
+  ${fila('Orientación escarpe', data.orientacion ? data.orientacion + '°N' : null)}
+  ${fila('Estructuras geológicas', data.estructuras?.join(', '))}
+  ${estDipRows}
+  ${fila('Vegetación', data.vegetacion)}
+</table>
+
+<h2>🌧️ Condiciones Previas</h2>
+<table>
+  ${fila('Lluvia previa intensa', data['lluvia-previa'])}
+  ${fila('Sismo previo', data['sismo-previo'] ? data['sismo-previo'] + (data['sismo-magnitud'] ? ' Mw ' + data['sismo-magnitud'] : '') : null)}
+  ${fila('Intervención antrópica', data.antropico)}
+</table>
+
+<h2>⚠️ Contexto de Riesgo</h2>
+<table>
+  ${fila('Amenaza activa', `<span class="${data.amenaza === 'si' ? 'amenaza-si' : data.amenaza === 'incierta' ? 'amenaza-incierta' : ''}">${data.amenaza === 'si' ? 'SÍ' : data.amenaza === 'incierta' ? 'Incierta' : data.amenaza === 'no' ? 'No' : ''}</span>`)}
+  ${fila('Personas afectadas', data['personas-afectadas'] ? data['personas-afectadas'] + (data['num-personas'] ? ' (' + data['num-personas'] + ')' : '') : null)}
+  ${fila('Infraestructura', data.infraestructura?.join(', '))}
+  ${fila('Dist. a vivienda', data['dist-vivienda'] ? data['dist-vivienda'] + ' m' : null)}
+</table>
+
+${data.efectos ? `<h2>📝 Efectos</h2><p style="padding:4px 8px">${esc(data.efectos)}</p>` : ''}
+${data.otros ? `<h2>💬 Observaciones adicionales</h2><p style="padding:4px 8px">${esc(data.otros)}</p>` : ''}
+
+${fotosHtml.some(f => f) ? `<h2>📷 Fotografías</h2><div class="fotos-grid">${fotosHtml.join('')}</div>` : ''}
+
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { alert('Permite ventanas emergentes para generar el informe.'); return; }
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 600);
+}
   </script>
 
   <script>
