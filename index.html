@@ -377,14 +377,46 @@ body {
     <label>Tipo de movimiento <button class="help-btn" data-help="tipo">?</button></label>
     <select id="tipo-movimiento">
       <option value="">— Seleccionar —</option>
-      <option>Caída de roca</option>
-      <option>Deslizamiento traslacional</option>
-      <option>Deslizamiento rotacional</option>
-      <option>Flujo de detritos</option>
-      <option>Aluvión</option>
-      <option>Avalancha de rocas</option>
-      <option>Reptación</option>
-      <option>Otro</option>
+      <optgroup label="Caídas (Falls)">
+        <option>Caída de roca</option>
+        <option>Caída de detritos</option>
+        <option>Caída de suelo</option>
+      </optgroup>
+      <optgroup label="Vuelcos (Topples)">
+        <option>Vuelco de roca</option>
+        <option>Vuelco de detritos</option>
+        <option>Vuelco de suelo</option>
+      </optgroup>
+      <optgroup label="Deslizamientos (Slides)">
+        <option>Deslizamiento rotacional en roca</option>
+        <option>Deslizamiento rotacional en suelo</option>
+        <option>Deslizamiento traslacional en roca</option>
+        <option>Deslizamiento traslacional en detritos</option>
+        <option>Deslizamiento traslacional en suelo</option>
+        <option>Deslizamiento en cuña</option>
+      </optgroup>
+      <optgroup label="Expansiones laterales (Lateral Spreads)">
+        <option>Expansión lateral en roca</option>
+        <option>Expansión lateral en suelo</option>
+      </optgroup>
+      <optgroup label="Flujos (Flows)">
+        <option>Flujo de detritos (debris flow)</option>
+        <option>Crecida de detritos (debris flood)</option>
+        <option>Aluvión / Lahar</option>
+        <option>Flujo de lodo (mudflow)</option>
+        <option>Flujo de tierra (earthflow)</option>
+        <option>Avalancha de roca (rock avalanche)</option>
+        <option>Flujo de turba (peat flow)</option>
+      </optgroup>
+      <optgroup label="Reptación (Creep)">
+        <option>Reptación de suelo</option>
+        <option>Solifluxión</option>
+        <option>Rastro de bloques</option>
+      </optgroup>
+      <optgroup label="Complejos y otros">
+        <option>Movimiento complejo</option>
+        <option>Otro</option>
+      </optgroup>
     </select>
   </div>
 </div>
@@ -620,12 +652,30 @@ body {
 // =====================
 const TIPO_ICON_MAP = {
   'Caída de roca': 'caida-roca',
-  'Deslizamiento traslacional': 'deslizamiento',
-  'Deslizamiento rotacional': 'deslizamiento',
-  'Flujo de detritos': 'flujo-detritos',
-  'Aluvión': 'aluvion',
-  'Avalancha de rocas': 'avalancha',
-  'Reptación': 'reptacion',
+  'Caída de detritos': 'caida-roca',
+  'Caída de suelo': 'caida-roca',
+  'Vuelco de roca': 'caida-roca',
+  'Vuelco de detritos': 'caida-roca',
+  'Vuelco de suelo': 'caida-roca',
+  'Deslizamiento rotacional en roca': 'deslizamiento',
+  'Deslizamiento rotacional en suelo': 'deslizamiento',
+  'Deslizamiento traslacional en roca': 'deslizamiento',
+  'Deslizamiento traslacional en detritos': 'deslizamiento',
+  'Deslizamiento traslacional en suelo': 'deslizamiento',
+  'Deslizamiento en cuña': 'deslizamiento',
+  'Expansión lateral en roca': 'deslizamiento',
+  'Expansión lateral en suelo': 'deslizamiento',
+  'Flujo de detritos (debris flow)': 'flujo-detritos',
+  'Crecida de detritos (debris flood)': 'flujo-detritos',
+  'Aluvión / Lahar': 'aluvion',
+  'Flujo de lodo (mudflow)': 'flujo-detritos',
+  'Flujo de tierra (earthflow)': 'flujo-detritos',
+  'Avalancha de roca (rock avalanche)': 'avalancha',
+  'Flujo de turba (peat flow)': 'flujo-detritos',
+  'Reptación de suelo': 'reptacion',
+  'Solifluxión': 'reptacion',
+  'Rastro de bloques': 'reptacion',
+  'Movimiento complejo': 'otro',
   'Otro': 'otro'
 };
 
