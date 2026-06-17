@@ -446,6 +446,17 @@ body {
   </div>
 
   <div class="field">
+    <label>Plasticidad del material fino <button class="help-btn" data-help="plasticidad">?</button></label>
+    <div class="toggle-group" id="plasticidad-toggle">
+      <button class="toggle-btn" data-val="no">No plástico</button>
+      <button class="toggle-btn" data-val="baja">Baja</button>
+      <button class="toggle-btn" data-val="media">Media</button>
+      <button class="toggle-btn" data-val="alta">Alta</button>
+      <button class="toggle-btn" data-val="na">N/A</button>
+    </div>
+  </div>
+
+  <div class="field">
     <label>Tamaño máx. bloques (cm) <button class="help-btn" data-help="bloques">?</button></label>
     <input type="number" id="tamano-bloques" min="0" placeholder="ej: 150">
   </div>
@@ -748,6 +759,7 @@ function initToggleGroup(groupId) {
 }
 initToggleGroup('zona-toggle');
 initToggleGroup('amenaza-toggle');
+initToggleGroup('plasticidad-toggle');
 
 function getToggleValue(groupId) {
   const active = document.querySelector(`#${groupId} .toggle-btn.active`);
@@ -788,33 +800,96 @@ document.getElementById('personas-afectadas').addEventListener('change', functio
 });
 
 // =====================
-// MORFOMETRÍA — generación dinámica
+// MORFOMETRÍA — dinámica según tipo de movimiento
 // =====================
-const MORFO_FIELDS = [
-  { id: 'alto-corona', label: 'Alto de la corona', unit: 'm', help: 'alto-corona' },
-  { id: 'ancho-corona', label: 'Ancho de la corona', unit: 'm', help: 'ancho-corona' },
-  { id: 'longitud-total', label: 'Longitud total del movimiento', unit: 'm', help: 'longitud' },
-  { id: 'alcance', label: 'Alcance horizontal', unit: 'm', help: 'alcance' },
-  { id: 'ancho-deposito', label: 'Ancho del depósito', unit: 'm', help: 'ancho-deposito' },
-  { id: 'espesor-deposito', label: 'Espesor del depósito', unit: 'm', help: 'espesor' },
-  { id: 'pendiente-gen', label: 'Pendiente zona generación', unit: '°', help: 'pendiente-gen' },
-  { id: 'pendiente-dep', label: 'Pendiente zona depósito', unit: '°', help: 'pendiente-dep' },
-];
+const MORFO_BY_GROUP = {
+  caidas: [
+    { id: 'alto-escarpe',    label: 'Alto del escarpe',          unit: 'm', help: 'alto-escarpe' },
+    { id: 'ancho-escarpe',   label: 'Ancho del escarpe',         unit: 'm', help: 'ancho-escarpe' },
+    { id: 'dist-horizontal', label: 'Distancia horizontal',      unit: 'm', help: 'dist-horizontal' },
+    { id: 'dist-vertical',   label: 'Distancia vertical (caída)',unit: 'm', help: 'dist-vertical' },
+    { id: 'ancho-deposito',  label: 'Ancho del depósito',        unit: 'm', help: 'ancho-deposito' },
+    { id: 'espesor-deposito',label: 'Espesor del depósito',      unit: 'm', help: 'espesor' },
+    { id: 'pendiente-gen',   label: 'Pendiente zona generación', unit: '°', help: 'pendiente-gen' },
+  ],
+  deslizamientos: [
+    { id: 'alto-corona',     label: 'Alto de la corona',         unit: 'm', help: 'alto-corona' },
+    { id: 'ancho-corona',    label: 'Ancho de la corona',        unit: 'm', help: 'ancho-corona' },
+    { id: 'dist-horizontal', label: 'Distancia horizontal',      unit: 'm', help: 'dist-horizontal' },
+    { id: 'dist-vertical',   label: 'Distancia vertical (desnivel)', unit: 'm', help: 'dist-vertical' },
+    { id: 'ancho-deposito',  label: 'Ancho del depósito',        unit: 'm', help: 'ancho-deposito' },
+    { id: 'espesor-deposito',label: 'Espesor del depósito',      unit: 'm', help: 'espesor' },
+    { id: 'pendiente-gen',   label: 'Pendiente zona generación', unit: '°', help: 'pendiente-gen' },
+    { id: 'pendiente-dep',   label: 'Pendiente zona depósito',   unit: '°', help: 'pendiente-dep' },
+  ],
+  flujos: [
+    { id: 'dist-horizontal', label: 'Distancia horizontal',      unit: 'm', help: 'dist-horizontal' },
+    { id: 'dist-vertical',   label: 'Distancia vertical (desnivel)', unit: 'm', help: 'dist-vertical' },
+    { id: 'ancho-canal',     label: 'Ancho del canal',           unit: 'm', help: 'ancho-canal' },
+    { id: 'ancho-deposito',  label: 'Ancho del depósito/abanico',unit: 'm', help: 'ancho-deposito' },
+    { id: 'espesor-deposito',label: 'Espesor del depósito',      unit: 'm', help: 'espesor' },
+    { id: 'pendiente-gen',   label: 'Pendiente zona generación', unit: '°', help: 'pendiente-gen' },
+    { id: 'pendiente-dep',   label: 'Pendiente zona depósito',   unit: '°', help: 'pendiente-dep' },
+  ],
+  reptacion: [
+    { id: 'dist-horizontal', label: 'Longitud zona activa (horizontal)', unit: 'm', help: 'dist-horizontal' },
+    { id: 'pendiente-gen',   label: 'Pendiente',                 unit: '°', help: 'pendiente-gen' },
+  ],
+  complejo: [
+    { id: 'alto-corona',     label: 'Alto de la corona / escarpe',unit: 'm', help: 'alto-corona' },
+    { id: 'ancho-corona',    label: 'Ancho de la corona / escarpe',unit: 'm', help: 'ancho-corona' },
+    { id: 'dist-horizontal', label: 'Distancia horizontal',      unit: 'm', help: 'dist-horizontal' },
+    { id: 'dist-vertical',   label: 'Distancia vertical (desnivel)', unit: 'm', help: 'dist-vertical' },
+    { id: 'ancho-canal',     label: 'Ancho del canal',           unit: 'm', help: 'ancho-canal' },
+    { id: 'ancho-deposito',  label: 'Ancho del depósito',        unit: 'm', help: 'ancho-deposito' },
+    { id: 'espesor-deposito',label: 'Espesor del depósito',      unit: 'm', help: 'espesor' },
+    { id: 'pendiente-gen',   label: 'Pendiente zona generación', unit: '°', help: 'pendiente-gen' },
+    { id: 'pendiente-dep',   label: 'Pendiente zona depósito',   unit: '°', help: 'pendiente-dep' },
+  ],
+};
 
-const morfoContainer = document.getElementById('morfometria-fields');
-MORFO_FIELDS.forEach(f => {
-  const div = document.createElement('div');
-  div.className = 'field';
-  div.innerHTML = `
-    <label>${f.label} (${f.unit}) <button type="button" class="help-btn" data-help="${f.help}" aria-label="Ayuda: ${f.label}">?</button></label>
-    <div class="field-row">
-      <input type="number" id="${f.id}" min="0" step="0.1" placeholder="ej: 10" style="flex:1">
-      <label style="font-size:0.8rem;white-space:nowrap">
-        <input type="checkbox" id="${f.id}-est"> est.
-      </label>
-    </div>`;
-  morfoContainer.appendChild(div);
+function getTipoGroup(tipo) {
+  if (!tipo) return 'complejo';
+  const t = tipo.toLowerCase();
+  if (t.startsWith('caída') || t.startsWith('vuelco')) return 'caidas';
+  if (t.startsWith('deslizamiento') || t.startsWith('expansión')) return 'deslizamientos';
+  if (t.startsWith('flujo') || t.startsWith('crecida') || t.startsWith('aluvión') || t.startsWith('avalancha')) return 'flujos';
+  if (t.startsWith('reptación') || t === 'solifluxión' || t.startsWith('rastro')) return 'reptacion';
+  return 'complejo';
+}
+
+let currentMorfoFields = MORFO_BY_GROUP.complejo;
+
+function updateMorfoFields(tipo) {
+  currentMorfoFields = MORFO_BY_GROUP[getTipoGroup(tipo)];
+  const container = document.getElementById('morfometria-fields');
+  container.innerHTML = '';
+  if (tipo) {
+    const note = document.createElement('p');
+    note.style.cssText = 'font-size:0.78rem;color:var(--red);margin-bottom:8px';
+    note.textContent = `Campos para: ${tipo}`;
+    container.appendChild(note);
+  }
+  currentMorfoFields.forEach(f => {
+    const div = document.createElement('div');
+    div.className = 'field';
+    div.innerHTML = `
+      <label>${f.label} (${f.unit}) <button type="button" class="help-btn" data-help="${f.help}" aria-label="Ayuda: ${f.label}">?</button></label>
+      <div class="field-row">
+        <input type="number" id="${f.id}" min="0" step="0.1" placeholder="ej: 10" style="flex:1">
+        <label style="font-size:0.8rem;white-space:nowrap">
+          <input type="checkbox" id="${f.id}-est"> est.
+        </label>
+      </div>`;
+    container.appendChild(div);
+  });
+}
+
+document.getElementById('tipo-movimiento').addEventListener('change', e => {
+  updateMorfoFields(e.target.value);
 });
+
+updateMorfoFields('');
 
 function getMorfoValue(id) {
   const val = document.getElementById(id)?.value;
@@ -1023,19 +1098,31 @@ const HELP_TEXTS = {
   },
   'alto-corona': {
     title: 'Alto de la corona',
-    text: 'Altura vertical del escarpe donde se originó el movimiento, medida desde la base del corte hasta el borde superior. Si no puedes medirlo, estímalo visualmente y marca "est.".'
+    text: 'Altura vertical de la corona (escarpe principal de arranque) del deslizamiento, medida desde la base hasta el borde superior. Estimar visualmente si no es posible medir y marcar "est.".'
   },
   'ancho-corona': {
     title: 'Ancho de la corona',
-    text: 'Ancho horizontal del escarpe de arranque, medido a lo largo del borde superior del corte. Representa qué tan ancho fue el material que se desprendió.'
+    text: 'Ancho horizontal de la corona, medido a lo largo del borde superior del deslizamiento. Representa el ancho del material que se desprendió en la zona de arranque.'
   },
-  longitud: {
-    title: 'Longitud total del movimiento',
-    text: 'Distancia desde la parte más alta del escarpe hasta el punto más lejano del depósito, medida a lo largo del camino del movimiento.'
+  'alto-escarpe': {
+    title: 'Alto del escarpe',
+    text: 'Altura vertical de la pared o escarpe desde donde se produjo la caída o vuelco. Medir desde la base del escarpe hasta el punto de desprendimiento. Estimar si no se puede medir directamente.'
   },
-  alcance: {
-    title: 'Alcance horizontal',
-    text: 'Distancia horizontal (en planta/mapa) desde el pie del escarpe hasta el extremo distal del depósito. Indica hasta dónde llegó el material.'
+  'ancho-escarpe': {
+    title: 'Ancho del escarpe',
+    text: 'Ancho horizontal de la cicatriz o escarpe de desprendimiento. Indica el largo de la zona de origen a lo largo de la pared.'
+  },
+  'ancho-canal': {
+    title: 'Ancho del canal',
+    text: 'Ancho promedio del cauce o canal por donde fluyó el material. Medir en la parte activa del flujo, evitando zonas de ensanchamiento o constricción extremas.'
+  },
+  'dist-horizontal': {
+    title: 'Distancia horizontal',
+    text: 'Distancia medida en planta (sobre el mapa o en terreno) desde el punto de origen del movimiento hasta el extremo distal del depósito. Se puede estimar con Google Earth, GPS o pasometría. Junto con la distancia vertical permite calcular el ángulo de alcance (H/L), que indica la movilidad del evento.'
+  },
+  'dist-vertical': {
+    title: 'Distancia vertical (desnivel)',
+    text: 'Diferencia de altura entre el punto más alto del escarpe o zona de generación y el punto más bajo del depósito. Se puede estimar con altímetro del celular, GPS o curvas de nivel del mapa. Junto con la distancia horizontal (H/L) caracteriza la movilidad: un ángulo de alcance bajo (< 20°) indica un movimiento muy móvil.'
   },
   'ancho-deposito': {
     title: 'Ancho del depósito',
@@ -1056,6 +1143,10 @@ const HELP_TEXTS = {
   granulometria: {
     title: 'Granulometría dominante',
     text: 'Tamaño de las partículas que componen principalmente el depósito. Selecciona todos los que sean importantes. Bloques: >25 cm. Gravas: 2-25 cm. Arenas: 0.06-2 mm. Limos/arcillas: muy fino.'
+  },
+  plasticidad: {
+    title: 'Plasticidad del material fino',
+    text: 'La plasticidad indica si el material fino (limos y arcillas) puede deformarse sin romperse al ser amasado. Prueba manual: toma un poco de material húmedo y forma un cilindro de ~3 mm de diámetro con la palma. Sin plástico: se desmenuza antes de llegar a ese diámetro. Baja: logra el cilindro pero se rompe fácil. Media: cilindro firme, se dobla sin romperse. Alta: muy flexible y pegajoso, difícil de despegar de los dedos. Selecciona N/A si el material es predominantemente grueso (bloques, gravas, arenas limpias) o si está muy seco para evaluar.'
   },
   bloques: {
     title: 'Tamaño máximo de bloques',
@@ -1198,7 +1289,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
     return s;
   })();
 
-  const morfoRows = MORFO_FIELDS.map(f => {
+  const morfoRows = currentMorfoFields.map(f => {
     const v = data[f.id];
     if (!v) return '';
     return row(f.label, `${v.valor} ${f.unit}${v.estimado ? ' (est.)' : ''}`);
@@ -1231,6 +1322,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
 <h3 style="color:#555;margin-top:12px">🪨 Características del depósito</h3>
 <table style="border-collapse:collapse;width:100%">
   ${row('Granulometría', data.granulometria?.join(', '))}
+  ${row('Plasticidad', data.plasticidad)}
   ${row('Tamaño máx. bloques', data['tamano-bloques'] ? data['tamano-bloques'] + ' cm' : null)}
   ${row('Proporción bloques', data['prop-bloques'] ? data['prop-bloques'] + '%' : null)}
   ${row('Humedad', data.humedad)}
@@ -1436,11 +1528,12 @@ async function generateKMZ() {
       'hora-fin': document.getElementById('hora-fin').value,
       desencadenante: document.getElementById('desencadenante').value,
       'tipo-movimiento': document.getElementById('tipo-movimiento').value,
-      ...Object.fromEntries(MORFO_FIELDS.map(f => [f.id, getMorfoValue(f.id)])),
+      ...Object.fromEntries(currentMorfoFields.map(f => [f.id, getMorfoValue(f.id)])),
       granulometria: getChipsValues('granulometria-chips'),
       'tamano-bloques': document.getElementById('tamano-bloques').value,
       'prop-bloques': document.getElementById('prop-bloques').value,
       humedad: document.getElementById('humedad').value,
+      plasticidad: getToggleValue('plasticidad-toggle'),
       sorting: document.getElementById('sorting').value,
       litologia: document.getElementById('litologia').value,
       orientacion: document.getElementById('orientacion').value,
