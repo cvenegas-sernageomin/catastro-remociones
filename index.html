@@ -1064,6 +1064,275 @@ document.getElementById('help-close').addEventListener('click', () => {
 document.getElementById('help-modal').addEventListener('click', function(e) {
   if (e.target === this) this.classList.remove('open');
 });
+
+// =====================
+// CAPTURA IMAGEN SATELITAL
+// =====================
+async function captureSatelitalBase64() {
+  const bounds = mapInstance.getBounds();
+  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
+  const url = `https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export?bbox=${bbox}&bboxSR=4326&size=800,600&imageSR=4326&format=jpg&f=image`;
+
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new Error('Esri export falló');
+    const blob = await response.blob();
+    return new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+// =====================
+// CONSTRUCCIÓN DEL KML
+// =====================
+function buildKML(data, fotoFilenames, satelitalFilename, geotiffFilename) {
+  const coords = data.coords;
+  const zona = data.zona || 'generacion';
+  const tipo = data['tipo-movimiento'] || 'Otro';
+  const iconFile = `icons/${TIPO_ICON_MAP[tipo] || 'otro'}.png`;
+  const kmlColor = ZONA_COLOR[zona] || ZONA_COLOR.generacion;
+
+  const row = (label, val) => val ? `<tr><td style="color:#888;padding:4px 8px;white-space:nowrap"><b>${label}</b></td><td style="padding:4px 8px">${val}</td></tr>` : '';
+
+  const fechaStr = (() => {
+    let s = data['fecha-inicio'] || 'No registrada';
+    if (data['fecha-aprox']) s += ' (aproximada)';
+    if (data['fecha-fin']) s += ` — ${data['fecha-fin']}`;
+    return s;
+  })();
+
+  const horaStr = (() => {
+    if (data['hora-desconocida']) return 'Desconocida';
+    let s = data['hora-inicio'] || 'No registrada';
+    if (data['hora-fin']) s += ` — ${data['hora-fin']}`;
+    return s;
+  })();
+
+  const morfoRows = MORFO_FIELDS.map(f => {
+    const v = data[f.id];
+    if (!v) return '';
+    return row(f.label, `${v.valor} ${f.unit}${v.estimado ? ' (est.)' : ''}`);
+  }).join('');
+
+  const fotosHTML = fotoFilenames.map((fname, i) => {
+    const desc = data.fotos[i]?.desc || '';
+    return `<p><img src="${fname}" style="max-width:100%;border-radius:6px;margin:8px 0"><br><i>${desc}</i></p>`;
+  }).join('');
+
+  const satelitalHTML = satelitalFilename
+    ? `<p><b>Vista satelital:</b><br><img src="${satelitalFilename}" style="max-width:100%;border-radius:6px;margin:8px 0"></p>`
+    : '';
+
+  const amenazaStyle = data.amenaza === 'si' ? 'color:red;font-weight:bold' : data.amenaza === 'incierta' ? 'color:orange' : '';
+  const amenazaLabel = data.amenaza === 'si' ? 'SÍ' : data.amenaza === 'incierta' ? 'Incierta' : data.amenaza === 'no' ? 'No' : 'No registrado';
+
+  const description = `<![CDATA[
+<html><body style="font-family:Arial,sans-serif;font-size:13px;max-width:500px">
+<h2 style="color:#e63946;border-bottom:2px solid #e63946;padding-bottom:6px">${tipo}</h2>
+<h3 style="color:#555">📍 Ubicación y clasificación</h3>
+<table style="border-collapse:collapse;width:100%">
+  ${row('Zona', zona.charAt(0).toUpperCase() + zona.slice(1))}
+  ${row('Coordenadas', `${coords.lat.toFixed(6)}, ${coords.lon.toFixed(6)}`)}
+  ${row('Fecha', fechaStr)}
+  ${row('Hora', horaStr)}
+  ${row('Desencadenante', data.desencadenante)}
+</table>
+<h3 style="color:#555;margin-top:12px">📐 Morfometría</h3>
+<table style="border-collapse:collapse;width:100%">${morfoRows || '<tr><td style="color:#aaa;padding:4px 8px">No registrada</td></tr>'}</table>
+<h3 style="color:#555;margin-top:12px">🪨 Características del depósito</h3>
+<table style="border-collapse:collapse;width:100%">
+  ${row('Granulometría', data.granulometria?.join(', '))}
+  ${row('Tamaño máx. bloques', data['tamano-bloques'] ? data['tamano-bloques'] + ' cm' : null)}
+  ${row('Proporción bloques', data['prop-bloques'] ? data['prop-bloques'] + '%' : null)}
+  ${row('Humedad', data.humedad)}
+  ${row('Sorting', data.sorting)}
+</table>
+<h3 style="color:#555;margin-top:12px">⛰️ Talud / Escarpe</h3>
+<table style="border-collapse:collapse;width:100%">
+  ${row('Litología', data.litologia)}
+  ${row('Orientación escarpe', data.orientacion ? data.orientacion + '°N' : null)}
+  ${row('Estructuras', data.estructuras?.join(', '))}
+  ${row('Vegetación', data.vegetacion)}
+</table>
+<h3 style="color:#555;margin-top:12px">🌧️ Condiciones previas</h3>
+<table style="border-collapse:collapse;width:100%">
+  ${row('Lluvia previa intensa', data['lluvia-previa'])}
+  ${row('Sismo previo', data['sismo-previo'] + (data['sismo-magnitud'] ? ` (Mw ${data['sismo-magnitud']})` : ''))}
+  ${row('Intervención antrópica', data.antropico)}
+</table>
+<h3 style="color:#555;margin-top:12px">⚠️ Contexto de riesgo</h3>
+<table style="border-collapse:collapse;width:100%">
+  ${row('Amenaza activa', `<span style="${amenazaStyle}">${amenazaLabel}</span>`)}
+  ${row('Personas afectadas', data['personas-afectadas'] + (data['num-personas'] ? ` (${data['num-personas']})` : ''))}
+  ${row('Infraestructura', data.infraestructura?.join(', '))}
+  ${row('Dist. a vivienda', data['dist-vivienda'] ? data['dist-vivienda'] + ' m' : null)}
+</table>
+${data.efectos ? `<h3 style="color:#555;margin-top:12px">📝 Efectos</h3><p>${data.efectos}</p>` : ''}
+${data.otros ? `<h3 style="color:#555;margin-top:12px">💬 Otros</h3><p>${data.otros}</p>` : ''}
+<hr style="margin:16px 0">
+<p style="color:#888;font-size:11px">Autor: ${data.autor || 'No registrado'} | Ingreso: ${data['hora-ingreso']}</p>
+${fotosHTML}
+${satelitalHTML}
+</body></html>
+]]>`;
+
+  const groundOverlay = (geotiffFilename && data.geotiffBounds) ? `
+  <GroundOverlay>
+    <name>Imagen satelital propia</name>
+    <Icon><href>${geotiffFilename}</href></Icon>
+    <LatLonBox>
+      <north>${data.geotiffBounds.north}</north>
+      <south>${data.geotiffBounds.south}</south>
+      <east>${data.geotiffBounds.east}</east>
+      <west>${data.geotiffBounds.west}</west>
+    </LatLonBox>
+  </GroundOverlay>` : '';
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>${tipo} — ${data['fecha-inicio'] || 'Sin fecha'}</name>
+  <Style id="event-style">
+    <IconStyle>
+      <color>${kmlColor}</color>
+      <scale>1.2</scale>
+      <Icon><href>${iconFile}</href></Icon>
+    </IconStyle>
+    <BalloonStyle>
+      <bgColor>ffffffff</bgColor>
+      <text>$[description]</text>
+    </BalloonStyle>
+  </Style>
+  <Placemark>
+    <name>${tipo} — ${fechaStr}</name>
+    <styleUrl>#event-style</styleUrl>
+    <description>${description}</description>
+    <Point>
+      <coordinates>${coords.lon},${coords.lat},0</coordinates>
+    </Point>
+  </Placemark>
+  ${groundOverlay}
+</Document>
+</kml>`;
+}
+
+// =====================
+// GENERAR KMZ
+// =====================
+async function generateKMZ() {
+  const loading = document.getElementById('loading');
+  const loadingMsg = document.getElementById('loading-msg');
+  loading.classList.add('open');
+
+  try {
+    loadingMsg.textContent = 'Capturando imagen satelital...';
+    const satelitalB64 = await captureSatelitalBase64();
+
+    loadingMsg.textContent = 'Empaquetando datos...';
+
+    const data = {
+      coords: getCoords(),
+      zona: getToggleValue('zona-toggle'),
+      'fecha-inicio': document.getElementById('fecha-inicio').value,
+      'fecha-aprox': document.getElementById('fecha-aprox').checked,
+      'fecha-fin': document.getElementById('fecha-fin').value,
+      'hora-inicio': document.getElementById('hora-inicio').value,
+      'hora-desconocida': document.getElementById('hora-desconocida').checked,
+      'hora-fin': document.getElementById('hora-fin').value,
+      desencadenante: document.getElementById('desencadenante').value,
+      'tipo-movimiento': document.getElementById('tipo-movimiento').value,
+      ...Object.fromEntries(MORFO_FIELDS.map(f => [f.id, getMorfoValue(f.id)])),
+      granulometria: getChipsValues('granulometria-chips'),
+      'tamano-bloques': document.getElementById('tamano-bloques').value,
+      'prop-bloques': document.getElementById('prop-bloques').value,
+      humedad: document.getElementById('humedad').value,
+      sorting: document.getElementById('sorting').value,
+      litologia: document.getElementById('litologia').value,
+      orientacion: document.getElementById('orientacion').value,
+      estructuras: getChipsValues('estructuras-chips'),
+      vegetacion: document.getElementById('vegetacion').value,
+      'lluvia-previa': document.getElementById('lluvia-previa').value,
+      'sismo-previo': document.getElementById('sismo-previo').value,
+      'sismo-magnitud': document.getElementById('sismo-magnitud').value,
+      antropico: document.getElementById('antropico').value,
+      amenaza: getToggleValue('amenaza-toggle'),
+      'personas-afectadas': document.getElementById('personas-afectadas').value,
+      'num-personas': document.getElementById('num-personas').value,
+      infraestructura: getChipsValues('infra-chips'),
+      'dist-vivienda': document.getElementById('dist-vivienda').value,
+      efectos: document.getElementById('efectos').value,
+      otros: document.getElementById('otros').value,
+      autor: document.getElementById('autor').value,
+      'hora-ingreso': document.getElementById('hora-ingreso').value,
+      fotos: fotosData,
+      geotiffBounds: geotiffBounds
+    };
+
+    loadingMsg.textContent = 'Creando KMZ...';
+    const zip = new JSZip();
+
+    const fotoFilenames = [];
+    for (let i = 0; i < fotosData.length; i++) {
+      if (fotosData[i].blob) {
+        const fname = `foto_${i + 1}.jpg`;
+        fotoFilenames.push(fname);
+        zip.file(fname, fotosData[i].blob);
+      }
+    }
+
+    let satelitalFilename = null;
+    if (satelitalB64) {
+      satelitalFilename = 'satelital.jpg';
+      zip.file(satelitalFilename, satelitalB64, { base64: true });
+    }
+
+    let geotiffFilename = null;
+    if (geotiffImageData) {
+      geotiffFilename = 'imagen_propia.jpg';
+      zip.file(geotiffFilename, geotiffImageData, { base64: true });
+    }
+
+    const tipoKey = TIPO_ICON_MAP[data['tipo-movimiento']] || 'otro';
+    try {
+      const iconResp = await fetch(`icons/${tipoKey}.svg`);
+      if (iconResp.ok) {
+        const iconBlob = await iconResp.blob();
+        zip.folder('icons').file(`${tipoKey}.png`, iconBlob);
+      }
+    } catch {}
+
+    const kmlStr = buildKML(data, fotoFilenames, satelitalFilename, geotiffFilename);
+    zip.file('doc.kml', kmlStr);
+
+    const tipo = (data['tipo-movimiento'] || 'evento').toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    const fecha = (data['fecha-inicio'] || new Date().toISOString().slice(0,10)).replace(/-/g,'');
+    const horaTag = new Date().toTimeString().slice(0,5).replace(':','');
+    const filename = `${tipo}_${fecha}_${horaTag}.kmz`;
+
+    const content = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    const url = URL.createObjectURL(content);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+  } catch (err) {
+    alert('Error al generar KMZ: ' + err.message);
+    console.error(err);
+  } finally {
+    loading.classList.remove('open');
+  }
+}
+
+document.getElementById('btn-generate').addEventListener('click', generateKMZ);
   </script>
 
   <script>
