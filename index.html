@@ -872,12 +872,29 @@ function initMap() {
 
   const ESRI_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
-  const esriTile = L.tileLayer(ESRI_URL, {
+  const esriTile = (typeof L.tileLayer.offline === 'function' ? L.tileLayer.offline : L.tileLayer)(ESRI_URL, {
     attribution: 'Tiles © Esri',
     maxZoom: 19,
     crossOrigin: false
   });
   esriTile.addTo(mapInstance);
+
+  if (typeof L.control.savetiles === 'function') {
+    const savetiles = L.control.savetiles(esriTile, {
+      zoomlevels: [13, 14, 15, 16, 17],
+      confirm(layer, successCallback) {
+        if (window.confirm('¿Descargar tiles satelitales de esta área para uso offline?\n(zooms 13-17)')) {
+          successCallback();
+        }
+      },
+      confirmRemoval(layer, successCallback) {
+        if (window.confirm('¿Eliminar tiles guardados?')) successCallback();
+      },
+      saveText: '⬇️ Guardar tiles offline',
+      rmText: '🗑️ Borrar tiles'
+    });
+    savetiles.addTo(mapInstance);
+  }
 
   markerInstance = L.marker([-33.45, -70.65], { draggable: true }).addTo(mapInstance);
   markerInstance.on('dragend', updateCoordsDisplay);
@@ -911,6 +928,18 @@ document.getElementById('btn-gps').addEventListener('click', locateGPS);
 if (navigator.onLine) {
   document.getElementById('btn-download-tiles').style.display = 'block';
 }
+
+document.getElementById('btn-download-tiles').addEventListener('click', () => {
+  const saveBtn = document.querySelector('.leaflet-control-savetiles-save');
+  if (saveBtn) saveBtn.click();
+});
+
+window.addEventListener('online', () => {
+  document.getElementById('btn-download-tiles').style.display = 'block';
+});
+window.addEventListener('offline', () => {
+  document.getElementById('btn-download-tiles').style.display = 'none';
+});
 
 document.addEventListener('DOMContentLoaded', initMap);
 
@@ -1223,6 +1252,80 @@ ${satelitalHTML}
 }
 
 // =====================
+// =====================
+// GEOTIFF OVERLAY
+// =====================
+document.getElementById('btn-load-geotiff').addEventListener('click', () => {
+  document.getElementById('input-geotiff').click();
+});
+
+document.getElementById('input-geotiff').addEventListener('change', async function() {
+  const file = this.files[0];
+  if (!file) return;
+
+  const loadingEl = document.getElementById('loading');
+  const loadingMsg = document.getElementById('loading-msg');
+  loadingEl.classList.add('open');
+  loadingMsg.textContent = 'Cargando GeoTIFF...';
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const georaster = await parseGeoraster(arrayBuffer);
+
+    if (geotiffLayer) {
+      mapInstance.removeLayer(geotiffLayer);
+    }
+
+    geotiffLayer = new GeoRasterLayer({
+      georaster,
+      opacity: 0.85,
+      resolution: 256
+    });
+    geotiffLayer.addTo(mapInstance);
+    mapInstance.fitBounds(geotiffLayer.getBounds());
+
+    const b = geotiffLayer.getBounds();
+    geotiffBounds = {
+      north: b.getNorth(),
+      south: b.getSouth(),
+      east: b.getEast(),
+      west: b.getWest()
+    };
+
+    // Export the GeoTIFF view as JPG for embedding in KMZ GroundOverlay
+    await new Promise(resolve => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 800;
+      canvas.height = 600;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#888';
+      ctx.fillRect(0, 0, 800, 600);
+      ctx.fillStyle = 'white';
+      ctx.font = '16px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Imagen GeoTIFF cargada', 400, 300);
+      canvas.toBlob(blob => {
+        if (!blob) { resolve(); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          geotiffImageData = reader.result.split(',')[1];
+          resolve();
+        };
+        reader.readAsDataURL(blob);
+      }, 'image/jpeg', 0.85);
+    });
+
+    alert(`GeoTIFF cargado correctamente.\nÁrea: ${geotiffBounds.south.toFixed(4)}°S — ${geotiffBounds.north.toFixed(4)}°N`);
+
+  } catch (err) {
+    alert('Error al cargar GeoTIFF: ' + err.message + '\n\nVerifica que el archivo tenga georreferenciación válida.');
+    console.error('GeoTIFF error:', err);
+  } finally {
+    loadingEl.classList.remove('open');
+    this.value = '';
+  }
+});
+
 // GENERAR ICONO PNG
 // =====================
 async function generateIconPng(zona) {
