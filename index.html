@@ -875,7 +875,7 @@ function initMap() {
   const esriTile = (typeof L.tileLayer.offline === 'function' ? L.tileLayer.offline : L.tileLayer)(ESRI_URL, {
     attribution: 'Tiles © Esri',
     maxZoom: 19,
-    crossOrigin: false
+    crossOrigin: true
   });
   esriTile.addTo(mapInstance);
 
@@ -931,7 +931,11 @@ if (navigator.onLine) {
 
 document.getElementById('btn-download-tiles').addEventListener('click', () => {
   const saveBtn = document.querySelector('.leaflet-control-savetiles-save');
-  if (saveBtn) saveBtn.click();
+  if (saveBtn) {
+    saveBtn.click();
+  } else {
+    alert('Función de descarga offline no disponible. Recarga la página con conexión a internet.');
+  }
 });
 
 window.addEventListener('online', () => {
@@ -1260,8 +1264,21 @@ document.getElementById('btn-load-geotiff').addEventListener('click', () => {
 });
 
 document.getElementById('input-geotiff').addEventListener('change', async function() {
+  if (typeof parseGeoraster === 'undefined' || typeof GeoRasterLayer === 'undefined') {
+    alert('Librería GeoTIFF no disponible. Recarga la página con conexión a internet para activar esta función.');
+    return;
+  }
   const file = this.files[0];
   if (!file) return;
+
+  const MAX_GEOTIFF_MB = 150;
+  if (file.size > MAX_GEOTIFF_MB * 1024 * 1024) {
+    const sizeMB = (file.size / 1024 / 1024).toFixed(0);
+    if (!confirm(`El archivo GeoTIFF pesa ${sizeMB} MB. Archivos mayores a ${MAX_GEOTIFF_MB} MB pueden causar problemas de memoria en dispositivos móviles. ¿Continuar de todas formas?`)) {
+      this.value = '';
+      return;
+    }
+  }
 
   const loadingEl = document.getElementById('loading');
   const loadingMsg = document.getElementById('loading-msg');
