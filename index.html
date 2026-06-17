@@ -844,7 +844,9 @@ function goToStep(n) {
 
   document.getElementById('btn-prev').style.display = n > 1 ? 'block' : 'none';
   document.getElementById('btn-next').style.display = n < TOTAL_STEPS ? 'block' : 'none';
-  document.getElementById('btn-generate').style.display = n === TOTAL_STEPS ? 'block' : 'none';
+  const isLast = n === TOTAL_STEPS;
+  document.getElementById('btn-generate').style.display = isLast ? 'block' : 'none';
+  document.getElementById('btn-pdf').style.display = isLast ? 'block' : 'none';
 
   if (n === TOTAL_STEPS) {
     document.getElementById('hora-ingreso').value = new Date().toLocaleString('es-CL');
