@@ -1028,6 +1028,37 @@ function getMorfoValue(id) {
 // =====================
 let orientPermissionGranted = false;
 
+// Permiso de orientación (iOS) — compartido por brújula y dip/dip-dir
+async function ensureOrientPermission() {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    if (orientPermissionGranted) return true;
+    try {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if (perm !== 'granted') return false;
+      orientPermissionGranted = true;
+    } catch { return false; }
+  }
+  return true;
+}
+
+// Heading de brújula: prefiere webkitCompassHeading (norte magnético real en iOS),
+// si no, convierte alpha a azimut clockwise-desde-norte (Android con orientación absoluta)
+function headingFromEvent(e) {
+  if (typeof e.webkitCompassHeading === 'number') return e.webkitCompassHeading;
+  if (e.alpha !== null && e.alpha !== undefined) return (360 - e.alpha) % 360;
+  return null;
+}
+
+// Media circular — correcta cerca del límite 0°/360° (a diferencia del promedio aritmético)
+function circularMean(degs) {
+  if (!degs.length) return null;
+  const rad = degs.map(d => d * Math.PI / 180);
+  const x = rad.reduce((s, r) => s + Math.cos(r), 0) / rad.length;
+  const y = rad.reduce((s, r) => s + Math.sin(r), 0) / rad.length;
+  return (Math.round(Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+}
+
 function createEstDipEntry() {
   const div = document.createElement('div');
   div.className = 'est-dip-entry';
@@ -1059,37 +1090,23 @@ document.getElementById('add-estructura-dip').addEventListener('click', () => {
 async function captureOrientation(entryDiv) {
   const btn = entryDiv.querySelector('.btn-capture-orient');
 
-  // iOS requiere permiso explícito
-  if (typeof DeviceOrientationEvent !== 'undefined' &&
-      typeof DeviceOrientationEvent.requestPermission === 'function') {
-    if (!orientPermissionGranted) {
-      try {
-        const perm = await DeviceOrientationEvent.requestPermission();
-        if (perm !== 'granted') {
-          alert('Se necesita permiso de orientación del dispositivo. Ingresa los valores manualmente.');
-          return;
-        }
-        orientPermissionGranted = true;
-      } catch (e) {
-        alert('No se pudo obtener permiso: ' + e.message);
-        return;
-      }
-    }
+  if (!(await ensureOrientPermission())) {
+    alert('Se necesita permiso de orientación del dispositivo. Ingresa los valores manualmente.');
+    return;
   }
 
   btn.textContent = '⏳';
   btn.disabled = true;
 
-  // Promedio de 3 lecturas para estabilizar
-  const readings = [];
+  // Promedio de varias lecturas para estabilizar (heading = dip direction, beta = dip)
+  const headings = [], betas = [];
   const collectReading = (e) => {
-    if (e.alpha !== null && e.beta !== null) readings.push({ alpha: e.alpha, beta: e.beta });
-    if (readings.length >= 3) {
+    const h = headingFromEvent(e);
+    if (h !== null && e.beta !== null) { headings.push(h); betas.push(Math.abs(e.beta)); }
+    if (headings.length >= 4) {
       window.removeEventListener('deviceorientation', collectReading);
-      const avgAlpha = Math.round(readings.reduce((s, r) => s + r.alpha, 0) / readings.length);
-      const avgBeta  = Math.round(Math.abs(readings.reduce((s, r) => s + r.beta, 0) / readings.length));
-      entryDiv.querySelector('.est-dipdir').value = (avgAlpha + 360) % 360;
-      entryDiv.querySelector('.est-dip').value = Math.min(avgBeta, 90);
+      entryDiv.querySelector('.est-dipdir').value = circularMean(headings);
+      entryDiv.querySelector('.est-dip').value = Math.min(Math.round(betas.reduce((s, b) => s + b, 0) / betas.length), 90);
       btn.textContent = '✓';
       btn.disabled = false;
       setTimeout(() => { btn.textContent = '📡'; }, 2500);
@@ -1122,28 +1139,22 @@ function getEstDipValues() {
 // FOTOS
 // =====================
 async function captureAzimuth() {
-  // iOS permission (reuse orientPermissionGranted)
-  if (typeof DeviceOrientationEvent !== 'undefined' &&
-      typeof DeviceOrientationEvent.requestPermission === 'function') {
-    if (!orientPermissionGranted) {
-      try {
-        const perm = await DeviceOrientationEvent.requestPermission();
-        if (perm !== 'granted') return null;
-        orientPermissionGranted = true;
-      } catch { return null; }
-    }
-  }
+  if (!(await ensureOrientPermission())) return null;
   return new Promise(resolve => {
-    const readings = [];
+    const headings = [];
     const handler = (e) => {
-      if (e.alpha !== null) readings.push(e.alpha);
-      if (readings.length >= 3) {
+      const h = headingFromEvent(e);
+      if (h !== null) headings.push(h);
+      if (headings.length >= 4) {
         window.removeEventListener('deviceorientation', handler);
-        resolve(Math.round(readings.reduce((s, v) => s + v, 0) / readings.length) % 360);
+        resolve(circularMean(headings));
       }
     };
     window.addEventListener('deviceorientation', handler);
-    setTimeout(() => { window.removeEventListener('deviceorientation', handler); resolve(null); }, 4000);
+    setTimeout(() => {
+      window.removeEventListener('deviceorientation', handler);
+      resolve(headings.length ? circularMean(headings) : null);
+    }, 4000);
   });
 }
 
@@ -1333,8 +1344,9 @@ function updateCoordsDisplay() {
 }
 
 function getCoords() {
+  if (!markerInstance) return null;
   const ll = markerInstance.getLatLng();
-  return { lat: ll.lat, lon: ll.lng };
+  return { lat: ll.lat, lon: ll.lng, lng: ll.lng };
 }
 
 document.getElementById('btn-gps').addEventListener('click', locateGPS);
@@ -1625,6 +1637,9 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
 <h2 style="color:#e63946;border-bottom:2px solid #e63946;padding-bottom:6px">${tipo}</h2>
 <h3 style="color:#555">📍 Ubicación y clasificación</h3>
 <table style="border-collapse:collapse;width:100%">
+  ${row('Región', data.region)}
+  ${row('Localidad', data.localidad)}
+  ${row('N° Antecedente', data['n-antecedente'])}
   ${row('Zona', zona.charAt(0).toUpperCase() + zona.slice(1))}
   ${row('Coordenadas', `${coords.lat.toFixed(6)}, ${coords.lon.toFixed(6)}`)}
   ${row('Fecha', fechaStr)}
@@ -1837,50 +1852,8 @@ async function generateKMZ() {
 
     loadingMsg.textContent = 'Empaquetando datos...';
 
-    const data = {
-      coords: getCoords(),
-      zona: getToggleValue('zona-toggle'),
-      'fecha-inicio': document.getElementById('fecha-inicio').value,
-      'fecha-aprox': document.getElementById('fecha-aprox').checked,
-      'fecha-fin': document.getElementById('fecha-fin').value,
-      'hora-inicio': document.getElementById('hora-inicio').value,
-      'hora-desconocida': document.getElementById('hora-desconocida').checked,
-      'hora-fin': document.getElementById('hora-fin').value,
-      desencadenante: document.getElementById('desencadenante').value,
-      'tipo-movimiento': document.getElementById('tipo-movimiento').value,
-      ...Object.fromEntries(currentMorfoFields.map(f => [f.id, getMorfoValue(f.id)])),
-      granulometria: getChipsValues('granulometria-chips'),
-      'tamano-bloques': document.getElementById('tamano-bloques').value,
-      'prop-bloques': document.getElementById('prop-bloques').value,
-      humedad: document.getElementById('humedad').value,
-      plasticidad: getToggleValue('plasticidad-toggle'),
-      sorting: document.getElementById('sorting').value,
-      'tipo-ladera': document.getElementById('tipo-ladera').value,
-      'geometria-ladera': getChipsValues('geometria-ladera-chips'),
-      'estado-escarpe': document.getElementById('estado-escarpe').value,
-      litologia: document.getElementById('litologia').value,
-      'suelo-adicional': document.getElementById('suelo-adicional').value,
-      'grado-alteracion': document.getElementById('grado-alteracion').value,
-      orientacion: document.getElementById('orientacion').value,
-      estructuras: getChipsValues('estructuras-chips'),
-      'estructuras-dip': getEstDipValues(),
-      vegetacion: document.getElementById('vegetacion').value,
-      'lluvia-previa': document.getElementById('lluvia-previa').value,
-      'sismo-previo': document.getElementById('sismo-previo').value,
-      'sismo-magnitud': document.getElementById('sismo-magnitud').value,
-      antropico: document.getElementById('antropico').value,
-      amenaza: getToggleValue('amenaza-toggle'),
-      'personas-afectadas': document.getElementById('personas-afectadas').value,
-      'num-personas': document.getElementById('num-personas').value,
-      infraestructura: getChipsValues('infra-chips'),
-      'dist-vivienda': document.getElementById('dist-vivienda').value,
-      efectos: document.getElementById('efectos').value,
-      otros: document.getElementById('otros').value,
-      autor: document.getElementById('autor').value,
-      'hora-ingreso': document.getElementById('hora-ingreso').value,
-      fotos: fotosData,
-      geotiffBounds: geotiffBounds
-    };
+    // Fuente única de datos del formulario (incluye región/localidad/antecedente)
+    const data = { ...collectFormData(), fotos: fotosData, geotiffBounds };
 
     loadingMsg.textContent = 'Creando KMZ...';
     const zip = new JSZip();
@@ -1947,7 +1920,7 @@ document.getElementById('btn-pdf').addEventListener('click', generatePDF);
 
 function collectFormData() {
   return {
-    coords: markerInstance ? markerInstance.getLatLng() : null,
+    coords: getCoords(),
     zona: getToggleValue('zona-toggle'),
     'fecha-inicio': document.getElementById('fecha-inicio')?.value,
     'fecha-aprox': document.getElementById('fecha-aprox')?.checked,
