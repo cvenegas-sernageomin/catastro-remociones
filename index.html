@@ -318,6 +318,21 @@ body {
 <!-- PASO 1: Ubicación -->
 <div class="step active" id="step-1">
   <h2>📍 Ubicación</h2>
+
+  <button type="button" id="btn-ver-rms" style="width:100%;padding:11px;margin-bottom:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--fg);cursor:pointer;font-size:0.9rem">
+    📋 RMs guardadas (<span id="rms-count">0</span>)
+  </button>
+
+  <div class="field">
+    <label>Iniciales del profesional <button class="help-btn" data-help="prof-iniciales">?</button></label>
+    <input type="text" id="prof-iniciales" placeholder="Ej: CVB" maxlength="5" style="text-transform:uppercase">
+  </div>
+
+  <div class="field">
+    <label>ID de la RM <button class="help-btn" data-help="rm-id">?</button></label>
+    <input type="text" id="rm-id" placeholder="RM-CVB-AAAAMMDD-NN">
+  </div>
+
   <div id="map"></div>
   <div id="coords-display">Sin ubicación GPS aún...</div>
   <div class="map-actions">
@@ -757,6 +772,25 @@ body {
     <button class="btn-generate" id="btn-generate" style="flex:1;min-width:140px">⬇️ Generar KMZ</button>
     <button class="btn-generate" id="btn-pdf" style="flex:1;min-width:140px;background:var(--surface2);color:var(--fg);border:1px solid var(--border)">🖨️ Informe PDF</button>
   </div>
+
+  <button type="button" id="btn-guardar-rm" style="width:100%;margin-top:10px;padding:14px;background:#16a34a;border:none;border-radius:10px;color:#fff;cursor:pointer;font-size:1rem;font-weight:600">
+    💾 Guardar RM y empezar otra
+  </button>
+  <p style="font-size:0.75rem;color:var(--muted);text-align:center;margin-top:6px">Guarda esta RM en el dispositivo y limpia el formulario para describir la siguiente.</p>
+</div>
+
+<!-- Modal lista de RMs guardadas -->
+<div id="rms-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:2000;align-items:flex-end;justify-content:center">
+  <div style="background:var(--bg,#fff);width:100%;max-width:560px;max-height:85vh;overflow-y:auto;border-radius:16px 16px 0 0;padding:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0;font-size:1.05rem">📋 RMs guardadas</h3>
+      <button type="button" id="rms-close" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--fg)">✕</button>
+    </div>
+    <button type="button" id="btn-kmz-dia" style="width:100%;padding:12px;margin-bottom:12px;background:var(--red,#e63946);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:0.92rem;font-weight:600">
+      ⬇️ KMZ del día (todas las RM)
+    </button>
+    <div id="rms-list"></div>
+  </div>
 </div>
 
 <!-- Navigation -->
@@ -985,6 +1019,11 @@ function getTipoGroup(tipo) {
 
 let currentMorfoFields = MORFO_BY_GROUP.complejo;
 
+// Conjunto de campos morfométricos según el tipo (independiente del estado vivo del formulario)
+function morfoFieldsFor(tipo) {
+  return MORFO_BY_GROUP[getTipoGroup(tipo)] || MORFO_BY_GROUP.complejo;
+}
+
 function updateMorfoFields(tipo) {
   currentMorfoFields = MORFO_BY_GROUP[getTipoGroup(tipo)];
   const container = document.getElementById('morfometria-fields');
@@ -1073,10 +1112,10 @@ function createEstDipEntry() {
       <option>Contacto litológico</option>
       <option>Otro</option>
     </select>
-    <input type="number" class="est-dipdir" min="0" max="360" placeholder="Dir (°N)" style="width:78px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
+    <input type="number" class="est-strike" min="0" max="360" placeholder="Rumbo (°N)" title="Rumbo según regla de la mano derecha (manteo a la derecha del rumbo)" style="width:90px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
     <span style="color:var(--muted);font-size:0.85rem">/</span>
     <input type="number" class="est-dip" min="0" max="90" placeholder="Dip (°)" style="width:68px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
-    <button type="button" class="btn-capture-orient" title="Capturar con brújula/acelerómetro" style="padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:1rem;min-width:44px">📡</button>
+    <button type="button" class="btn-capture-orient" title="Capturar con brújula/acelerómetro (aplica regla mano derecha)" style="padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:1rem;min-width:44px">📡</button>
     <button type="button" class="btn-remove-est" style="padding:9px 11px;border-radius:8px;border:none;background:#fee2e2;color:#e63946;cursor:pointer;font-size:0.9rem;min-width:44px">✕</button>`;
   div.querySelector('.btn-remove-est').addEventListener('click', () => div.remove());
   div.querySelector('.btn-capture-orient').addEventListener('click', () => captureOrientation(div));
@@ -1098,14 +1137,17 @@ async function captureOrientation(entryDiv) {
   btn.textContent = '⏳';
   btn.disabled = true;
 
-  // Promedio de varias lecturas para estabilizar (heading = dip direction, beta = dip)
+  // Promedio de varias lecturas para estabilizar (heading = dirección de manteo, beta = dip)
   const headings = [], betas = [];
   const collectReading = (e) => {
     const h = headingFromEvent(e);
     if (h !== null && e.beta !== null) { headings.push(h); betas.push(Math.abs(e.beta)); }
     if (headings.length >= 4) {
       window.removeEventListener('deviceorientation', collectReading);
-      entryDiv.querySelector('.est-dipdir').value = circularMean(headings);
+      const dipDir = circularMean(headings);
+      // Regla de la mano derecha: rumbo = dirección de manteo − 90° (manteo a la derecha del rumbo)
+      const strike = (dipDir - 90 + 360) % 360;
+      entryDiv.querySelector('.est-strike').value = strike;
       entryDiv.querySelector('.est-dip').value = Math.min(Math.round(betas.reduce((s, b) => s + b, 0) / betas.length), 90);
       btn.textContent = '✓';
       btn.disabled = false;
@@ -1129,10 +1171,10 @@ function getEstDipValues() {
   return Array.from(document.querySelectorAll('#estructuras-dip-list .est-dip-entry'))
     .map(div => ({
       tipo:   div.querySelector('.est-tipo').value,
-      dipDir: div.querySelector('.est-dipdir').value,
+      strike: div.querySelector('.est-strike').value,
       dip:    div.querySelector('.est-dip').value
     }))
-    .filter(e => e.tipo || e.dipDir || e.dip);
+    .filter(e => e.tipo || e.strike || e.dip);
 }
 
 // =====================
@@ -1158,10 +1200,16 @@ async function captureAzimuth() {
   });
 }
 
-document.getElementById('btn-add-foto').addEventListener('click', () => {
+const cardinalDir = (az) => {
+  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'];
+  return dirs[Math.round(az / 22.5) % 16];
+};
+
+// Crea un item de foto. `existing` = {blob, desc, azimuth} para recargar una RM guardada.
+function addFotoItem(existing) {
   if (fotosData.length >= 5) return;
   const idx = fotosData.length;
-  fotosData.push({ blob: null, desc: '', azimuth: null });
+  fotosData.push(existing ? { ...existing } : { blob: null, desc: '', azimuth: null });
 
   const div = document.createElement('div');
   div.className = 'foto-item';
@@ -1185,11 +1233,15 @@ document.getElementById('btn-add-foto').addEventListener('click', () => {
 
   const azInput = document.getElementById(`foto-az-${idx}`);
   const azDir   = document.getElementById(`foto-az-dir-${idx}`);
+  const descInput = document.getElementById(`foto-desc-${idx}`);
+  const preview = document.getElementById(`foto-preview-${idx}`);
 
-  const cardinalDir = (az) => {
-    const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'];
-    return dirs[Math.round(az / 22.5) % 16];
-  };
+  // Precargar valores existentes
+  if (existing) {
+    if (existing.desc) descInput.value = existing.desc;
+    if (existing.azimuth != null) { azInput.value = existing.azimuth; azDir.textContent = cardinalDir(existing.azimuth); }
+    if (existing.blob) { preview.src = URL.createObjectURL(existing.blob); preview.classList.add('loaded'); }
+  }
 
   azInput.addEventListener('input', () => {
     const v = parseInt(azInput.value);
@@ -1214,7 +1266,6 @@ document.getElementById('btn-add-foto').addEventListener('click', () => {
   });
 
   document.getElementById(`foto-btn-${idx}`).addEventListener('click', async () => {
-    // Captura azimuth automáticamente al abrir la cámara
     document.getElementById(`foto-file-${idx}`).click();
     const az = await captureAzimuth();
     if (az !== null && !fotosData[idx].azimuth) {
@@ -1229,20 +1280,20 @@ document.getElementById('btn-add-foto').addEventListener('click', () => {
     if (!file) return;
     const compressed = await compressImage(file, 1024);
     fotosData[idx].blob = compressed;
-    const url = URL.createObjectURL(compressed);
-    const preview = document.getElementById(`foto-preview-${idx}`);
-    preview.src = url;
+    preview.src = URL.createObjectURL(compressed);
     preview.classList.add('loaded');
   });
 
-  document.getElementById(`foto-desc-${idx}`).addEventListener('input', function() {
+  descInput.addEventListener('input', function() {
     fotosData[idx].desc = this.value;
   });
 
   if (fotosData.length >= 5) {
     document.getElementById('btn-add-foto').style.display = 'none';
   }
-});
+}
+
+document.getElementById('btn-add-foto').addEventListener('click', () => addFotoItem(null));
 
 async function compressImage(file, maxKB) {
   return new Promise(resolve => {
@@ -1377,6 +1428,14 @@ document.addEventListener('DOMContentLoaded', initMap);
 // SISTEMA DE AYUDA
 // =====================
 const HELP_TEXTS = {
+  'prof-iniciales': {
+    title: 'Iniciales del profesional',
+    text: 'Tus iniciales (ej: CVB). Se incorporan al ID de cada RM para evitar duplicidad cuando varios profesionales describen RM en distintas áreas el mismo día. Se recuerdan en el dispositivo, así que solo las escribes una vez. Al cambiarlas se regenera el ID sugerido.'
+  },
+  'rm-id': {
+    title: 'ID de la RM',
+    text: 'Identificador único de esta remoción en masa. Se genera automáticamente con el formato RM-INICIALES-AAAAMMDD-NN (iniciales del profesional + fecha + correlativo), pero puedes editarlo. Las iniciales evitan que dos profesionales generen el mismo ID. Se incluye en el KMZ y el informe PDF.'
+  },
   zona: {
     title: 'Zona del evento',
     text: 'Generación: donde se originó el movimiento (escarpe, corona). Runout: la zona donde se depositó o llegó el material. Ambas: si el área observada incluye origen y depósito.'
@@ -1491,7 +1550,7 @@ const HELP_TEXTS = {
   },
   'disposicion-estructuras': {
     title: 'Disposición de estructuras geológicas',
-    text: 'Registro de dip direction (dirección de buzamiento en °N) y dip (ángulo de buzamiento en °) de estructuras visibles en el escarpe que puedan tener control sobre el movimiento. Puedes agregar varias. Para captura automática (📡): apoyar la parte trasera del teléfono contra el plano de la estructura con la parte superior apuntando en la dirección de máxima pendiente (hacia abajo), y presionar 📡. El sensor promedia 3 lecturas del acelerómetro y brújula — alejarse de objetos metálicos para evitar interferencias. Siempre verificar el dato obtenido con la brújula de campo.'
+    text: 'Registro de Rumbo y Dip (manteo) de estructuras visibles en el escarpe que puedan controlar el movimiento. Se usa la REGLA DE LA MANO DERECHA: el rumbo se mide de modo que el manteo quede a la derecha de la dirección del rumbo (es decir, dirección de manteo = rumbo + 90°). Ej: "180/35 RHR" mantea hacia el W (270°). Puedes agregar varias y editarlas a mano. Para captura automática (📡): apoyar la parte trasera del teléfono contra el plano de la estructura con la parte superior apuntando en la dirección de máxima pendiente (hacia abajo) y presionar 📡; el sensor promedia varias lecturas y calcula el rumbo aplicando la regla de la mano derecha. Alejarse de objetos metálicos y verificar siempre con la brújula de campo.'
   },
   orientacion: {
     title: 'Orientación del escarpe',
@@ -1614,7 +1673,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
     return s;
   })();
 
-  const morfoRows = currentMorfoFields.map(f => {
+  const morfoRows = morfoFieldsFor(data['tipo-movimiento']).map(f => {
     const v = data[f.id];
     if (!v) return '';
     return row(f.label, `${v.valor} ${f.unit}${v.estimado ? ' (est.)' : ''}`);
@@ -1637,6 +1696,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
 <h2 style="color:#e63946;border-bottom:2px solid #e63946;padding-bottom:6px">${tipo}</h2>
 <h3 style="color:#555">📍 Ubicación y clasificación</h3>
 <table style="border-collapse:collapse;width:100%">
+  ${row('ID RM', data.id)}
   ${row('Región', data.region)}
   ${row('Localidad', data.localidad)}
   ${row('N° Antecedente', data['n-antecedente'])}
@@ -1667,7 +1727,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
   ${row('Alteración / meteorización', data['grado-alteracion'])}
   ${row('Orientación escarpe', data.orientacion ? data.orientacion + '°N' : null)}
   ${row('Estructuras', data.estructuras?.join(', '))}
-  ${(data['estructuras-dip'] || []).map(e => row(`↗ ${e.tipo || 'Estructura'}`, `${e.dipDir || '?'}°N / ${e.dip || '?'}°`)).join('')}
+  ${(data['estructuras-dip'] || []).map(e => row(`↗ ${e.tipo || 'Estructura'}`, `Rumbo ${e.strike || '?'}°N / Dip ${e.dip || '?'}° (RHR)`)).join('')}
   ${row('Vegetación', data.vegetacion)}
 </table>
 <h3 style="color:#555;margin-top:12px">🌧️ Condiciones previas</h3>
@@ -1841,29 +1901,38 @@ async function generateIconPng(zona) {
 // =====================
 // GENERAR KMZ
 // =====================
-async function generateKMZ() {
+// Si `record` se entrega, genera el KMZ de una RM guardada; si no, de la RM activa en el formulario.
+async function generateKMZ(record) {
   const loading = document.getElementById('loading');
   const loadingMsg = document.getElementById('loading-msg');
   loading.classList.add('open');
 
   try {
-    loadingMsg.textContent = 'Capturando imagen satelital...';
-    const satelitalB64 = await captureSatelitalBase64();
+    const live = !record;
+    let satelitalB64, data, fotos, geotiffImg;
 
-    loadingMsg.textContent = 'Empaquetando datos...';
-
-    // Fuente única de datos del formulario (incluye región/localidad/antecedente)
-    const data = { ...collectFormData(), fotos: fotosData, geotiffBounds };
+    if (live) {
+      loadingMsg.textContent = 'Capturando imagen satelital...';
+      satelitalB64 = await captureSatelitalBase64();
+      data = { ...collectFormData(), geotiffBounds };
+      fotos = fotosData;
+      geotiffImg = geotiffImageData;
+    } else {
+      data = record.data;
+      fotos = record.fotos || [];
+      satelitalB64 = record.satelitalB64 || null;
+      geotiffImg = record.geotiffImageData || null;
+    }
 
     loadingMsg.textContent = 'Creando KMZ...';
     const zip = new JSZip();
 
     const fotoEntries = [];
-    for (let i = 0; i < fotosData.length; i++) {
-      if (fotosData[i].blob) {
+    for (let i = 0; i < fotos.length; i++) {
+      if (fotos[i].blob) {
         const fname = `foto_${i + 1}.jpg`;
-        fotoEntries.push({ fname, desc: fotosData[i].desc || '', azimuth: fotosData[i].azimuth ?? null });
-        zip.file(fname, fotosData[i].blob);
+        fotoEntries.push({ fname, desc: fotos[i].desc || '', azimuth: fotos[i].azimuth ?? null });
+        zip.file(fname, fotos[i].blob);
       }
     }
 
@@ -1874,9 +1943,9 @@ async function generateKMZ() {
     }
 
     let geotiffFilename = null;
-    if (geotiffImageData) {
+    if (geotiffImg) {
       geotiffFilename = 'imagen_propia.jpg';
-      zip.file(geotiffFilename, geotiffImageData, { base64: true });
+      zip.file(geotiffFilename, geotiffImg, { base64: true });
     }
 
     const tipoKey = TIPO_ICON_MAP[data['tipo-movimiento']] || 'otro';
@@ -1888,20 +1957,14 @@ async function generateKMZ() {
     const kmlStr = buildKML(data, fotoEntries, satelitalFilename, geotiffFilename);
     zip.file('doc.kml', kmlStr);
 
+    const idTag = (data.id || '').replace(/[^A-Za-z0-9_-]/g, '');
     const tipo = (data['tipo-movimiento'] || 'evento').toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     const fecha = (data['fecha-inicio'] || new Date().toISOString().slice(0,10)).replace(/-/g,'');
     const horaTag = new Date().toTimeString().slice(0,5).replace(':','');
-    const filename = `${tipo}_${fecha}_${horaTag}.kmz`;
+    const filename = `${idTag || tipo}_${fecha}_${horaTag}.kmz`;
 
     const content = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-    const url = URL.createObjectURL(content);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadBlob(content, filename);
 
   } catch (err) {
     alert('Error al generar KMZ: ' + err.message);
@@ -1911,15 +1974,27 @@ async function generateKMZ() {
   }
 }
 
-document.getElementById('btn-generate').addEventListener('click', generateKMZ);
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+document.getElementById('btn-generate').addEventListener('click', () => generateKMZ());
 
 // =====================
 // INFORME PDF
 // =====================
-document.getElementById('btn-pdf').addEventListener('click', generatePDF);
+document.getElementById('btn-pdf').addEventListener('click', () => generatePDF());
 
 function collectFormData() {
   return {
+    id: document.getElementById('rm-id')?.value,
     coords: getCoords(),
     zona: getToggleValue('zona-toggle'),
     'fecha-inicio': document.getElementById('fecha-inicio')?.value,
@@ -1985,12 +2060,13 @@ function latLonToUTM(lat, lon) {
   return { E: Math.round(x), N: Math.round(y), zone: `${zone}${lat<0?'S':'N'}` };
 }
 
-async function generatePDF() {
-  const data = collectFormData();
+async function generatePDF(record) {
+  const data = record ? record.data : collectFormData();
+  const fotos = record ? (record.fotos || []) : fotosData;
   const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
   // Fotos → base64
-  const b64Fotos = await Promise.all(fotosData.map(f => f.blob
+  const b64Fotos = await Promise.all(fotos.map(f => f.blob
     ? new Promise(res => { const r=new FileReader(); r.onload=e=>res(e.target.result); r.readAsDataURL(f.blob); })
     : Promise.resolve(null)));
 
@@ -2016,15 +2092,16 @@ async function generatePDF() {
   const antecedente = data['n-antecedente'] || '—';
 
   // Morfometría → texto y área estimada
+  const morfoFields = morfoFieldsFor(data['tipo-movimiento']);
   const morfoVals = {};
-  currentMorfoFields.forEach(f => { if (data[f.id]) morfoVals[f.id] = data[f.id]; });
+  morfoFields.forEach(f => { if (data[f.id]) morfoVals[f.id] = data[f.id]; });
   const areaEstimada = (() => {
     const w = morfoVals['ancho-deposito']?.valor;
     const l = morfoVals['dist-horizontal']?.valor;
     if (w && l) return `~${Math.round(w*l)} m²`;
     return null;
   })();
-  const morfoTexto = currentMorfoFields
+  const morfoTexto = morfoFields
     .map(f => morfoVals[f.id] ? `${f.label}: ${morfoVals[f.id].valor} ${f.unit}${morfoVals[f.id].estimado?' (est.)':''}` : null)
     .filter(Boolean).join('. ');
 
@@ -2040,7 +2117,7 @@ async function generatePDF() {
   }
   if (data.estructuras?.length) obsPartes.push(`Se observan ${esc(data.estructuras.join(', '))} en el escarpe.`);
   if ((data['estructuras-dip']||[]).length) {
-    const dipStr = data['estructuras-dip'].map(e=>`${e.tipo||'estructura'} ${e.dipDir||'?'}°N/${e.dip||'?'}°`).join('; ');
+    const dipStr = data['estructuras-dip'].map(e=>`${e.tipo||'estructura'} rumbo ${e.strike||'?'}°N/dip ${e.dip||'?'}° (RHR)`).join('; ');
     obsPartes.push(`Disposición de estructuras: ${esc(dipStr)}.`);
   }
   if (data.efectos) obsPartes.push(esc(data.efectos));
@@ -2072,7 +2149,7 @@ async function generatePDF() {
   const fotosRestantes = b64Fotos.slice(2).filter(Boolean);
 
   const fotoCaption = (i) => {
-    const f = fotosData[i];
+    const f = fotos[i];
     if (!f) return '';
     const az = f.azimuth!=null ? ` 🧭 ${f.azimuth}°N` : '';
     return `${f.desc||''}${az}`.trim();
@@ -2137,6 +2214,7 @@ table.main th { background:#ddd; font-weight:bold; text-align:left; }
   </tr>
   <tr>
     <td style="width:48%;vertical-align:top">
+      ${data.id ? `<p><span class="lbl">ID RM:</span> ${esc(data.id)}</p>` : ''}
       <p><span class="lbl">Día Evento:</span> ${esc(fechaStr)}</p>
       <p><span class="lbl">Desencadenante:</span> ${esc(data.desencadenante||'No registrado')}</p>
       <p style="margin-top:6px"><span class="lbl">IDENTIFICACIÓN:</span> Remoción en masa</p>
@@ -2162,7 +2240,7 @@ table.main th { background:#ddd; font-weight:bold; text-align:left; }
       <table style="width:100%;border-collapse:collapse">
         <tr>
           <td style="padding:4px 8px;width:50%;border-right:1px solid #888">Imágenes satelitales (Esri World Imagery)</td>
-          <td style="padding:4px 8px">Fotos de terreno${fotosData.filter(f=>f.blob).length>0?' ('+fotosData.filter(f=>f.blob).length+' fotografías)':''}</td>
+          <td style="padding:4px 8px">Fotos de terreno${fotos.filter(f=>f.blob).length>0?' ('+fotos.filter(f=>f.blob).length+' fotografías)':''}</td>
         </tr>
       </table>
     </td>
@@ -2211,6 +2289,326 @@ ${fotosAdicionalesHtml ? `<div style="margin-top:10px"><b>Fotografías adicional
     setTimeout(() => iframe.remove(), 2000);
   }, 800);
 }
+
+// =====================
+// ALMACENAMIENTO DE RMs (IndexedDB) + flujo multi-RM
+// =====================
+const RM_DB = 'catastro-rm', RM_STORE = 'rms';
+let savedRMsCache = [];
+
+function rmDbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(RM_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(RM_STORE, { keyPath: 'key', autoIncrement: true });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function rmGetAll() {
+  const db = await rmDbOpen();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(RM_STORE, 'readonly').objectStore(RM_STORE).getAll();
+    req.onsuccess = () => resolve((req.result || []).sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0)));
+    req.onerror = () => reject(req.error);
+  });
+}
+async function rmAdd(rec) {
+  const db = await rmDbOpen();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(RM_STORE, 'readwrite').objectStore(RM_STORE).add(rec);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function rmDelete(key) {
+  const db = await rmDbOpen();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(RM_STORE, 'readwrite').objectStore(RM_STORE).delete(key);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+const escapeHtmlJS = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+}
+function getIniciales() {
+  return (document.getElementById('prof-iniciales')?.value || localStorage.getItem('rem-iniciales') || '')
+    .trim().toUpperCase().replace(/[^A-ZÑ]/g, '');
+}
+async function generateRMId() {
+  const all = await rmGetAll();
+  const t = todayStr();
+  const ini = getIniciales();
+  const prefix = ini ? `RM-${ini}-${t}` : `RM-${t}`;
+  const n = all.filter(r => (r.id || '').startsWith(prefix)).length + 1;
+  return `${prefix}-${String(n).padStart(2, '0')}`;
+}
+async function refreshRMsCount() {
+  savedRMsCache = await rmGetAll();
+  const el = document.getElementById('rms-count');
+  if (el) el.textContent = savedRMsCache.length;
+}
+
+// Helpers para fijar/limpiar toggles y chips
+function setToggle(groupId, val) {
+  document.querySelectorAll(`#${groupId} .toggle-btn`).forEach(b => b.classList.toggle('active', b.dataset.val === val));
+}
+function clearToggle(groupId) {
+  document.querySelectorAll(`#${groupId} .toggle-btn`).forEach(b => b.classList.remove('active'));
+}
+function setChips(groupId, vals) {
+  const set = new Set(vals || []);
+  document.querySelectorAll(`#${groupId} .chip`).forEach(c => c.classList.toggle('selected', set.has(c.dataset.val)));
+}
+function clearChips(groupId) {
+  document.querySelectorAll(`#${groupId} .chip`).forEach(c => c.classList.remove('selected'));
+}
+function setEl(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el.type === 'checkbox') el.checked = !!val;
+  else el.value = val ?? '';
+}
+
+// Construye el registro completo de la RM actual (captura satelital incluida)
+async function buildRMRecord() {
+  const loading = document.getElementById('loading');
+  const msg = document.getElementById('loading-msg');
+  loading.classList.add('open');
+  msg.textContent = 'Capturando imagen satelital...';
+  let satelitalB64 = null;
+  try { satelitalB64 = await captureSatelitalBase64(); } catch {}
+  loading.classList.remove('open');
+
+  const data = { ...collectFormData(), geotiffBounds };
+  const fotos = fotosData
+    .filter(f => f.blob || f.desc || f.azimuth != null)
+    .map(f => ({ blob: f.blob, desc: f.desc, azimuth: f.azimuth }));
+
+  return {
+    id: data.id || await generateRMId(),
+    savedAt: Date.now(),
+    data, fotos, satelitalB64,
+    geotiffImageData, geotiffBounds,
+    summary: { tipo: data['tipo-movimiento'] || '', localidad: data.localidad || '', fecha: data['fecha-inicio'] || '' }
+  };
+}
+
+async function saveCurrentRM() {
+  if (!getCoords()) { alert('Marca la ubicación en el mapa antes de guardar la RM.'); return; }
+  try {
+    const rec = await buildRMRecord();
+    await rmAdd(rec);
+    await refreshRMsCount();
+    resetFormForNewRM();
+    alert(`RM "${rec.id}" guardada (${savedRMsCache.length} en total). Formulario listo para la siguiente.`);
+  } catch (e) {
+    alert('No se pudo guardar la RM: ' + e.message);
+    console.error(e);
+  }
+}
+
+function resetFormForNewRM() {
+  document.querySelectorAll('#step-1 input, #step-1 select, #step-2 input, #step-2 select, #step-2 textarea, #step-3 input, #step-4 input, #step-4 select, #step-4 textarea, #step-5 input, #step-5 textarea')
+    .forEach(el => {
+      if (['hora-ingreso', 'autor', 'prof-iniciales'].includes(el.id)) return;
+      if (el.type === 'checkbox') el.checked = false;
+      else el.value = '';
+    });
+  setToggle('zona-toggle', 'generacion');
+  clearToggle('amenaza-toggle');
+  clearToggle('plasticidad-toggle');
+  ['granulometria-chips', 'geometria-ladera-chips', 'estructuras-chips', 'infra-chips'].forEach(clearChips);
+  document.getElementById('estructuras-dip-list').innerHTML = '';
+  updateMorfoFields('');
+  fotosData = [];
+  document.getElementById('fotos-container').innerHTML = '';
+  document.getElementById('btn-add-foto').style.display = '';
+  generateRMId().then(id => { document.getElementById('rm-id').value = id; });
+  goToStep(1);
+}
+
+// Recarga una RM guardada en el formulario (para revisar/editar)
+function populateForm(rec) {
+  const d = rec.data;
+  if (d.coords && markerInstance) {
+    const lng = d.coords.lng ?? d.coords.lon;
+    markerInstance.setLatLng([d.coords.lat, lng]);
+    mapInstance.setView([d.coords.lat, lng], mapInstance.getZoom());
+    const cd = document.getElementById('coords-display');
+    if (cd) cd.textContent = `${d.coords.lat.toFixed(6)}, ${lng.toFixed(6)}`;
+  }
+  setEl('tipo-movimiento', d['tipo-movimiento']);
+  updateMorfoFields(d['tipo-movimiento']);
+  morfoFieldsFor(d['tipo-movimiento']).forEach(f => {
+    const v = d[f.id];
+    if (v && typeof v === 'object') {
+      setEl(f.id, v.valor);
+      const est = document.getElementById(`${f.id}-est`);
+      if (est) est.checked = !!v.estimado;
+    }
+  });
+  setToggle('zona-toggle', d.zona || 'generacion');
+  d.amenaza ? setToggle('amenaza-toggle', d.amenaza) : clearToggle('amenaza-toggle');
+  d.plasticidad ? setToggle('plasticidad-toggle', d.plasticidad) : clearToggle('plasticidad-toggle');
+  setChips('granulometria-chips', d.granulometria);
+  setChips('geometria-ladera-chips', d['geometria-ladera']);
+  setChips('estructuras-chips', d.estructuras);
+  setChips('infra-chips', d.infraestructura);
+  setEl('rm-id', d.id);
+  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','region','localidad','n-antecedente','hora-ingreso']
+    .forEach(id => setEl(id, d[id]));
+  setEl('fecha-aprox', d['fecha-aprox']);
+  setEl('hora-desconocida', d['hora-desconocida']);
+  ['sismo-previo', 'fecha-aprox', 'hora-desconocida', 'desencadenante'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.dispatchEvent(new Event('change'));
+  });
+  const list = document.getElementById('estructuras-dip-list');
+  list.innerHTML = '';
+  (d['estructuras-dip'] || []).forEach(e => {
+    const entry = createEstDipEntry();
+    list.appendChild(entry);
+    entry.querySelector('.est-tipo').value = e.tipo || '';
+    entry.querySelector('.est-strike').value = e.strike || '';
+    entry.querySelector('.est-dip').value = e.dip || '';
+  });
+  fotosData = [];
+  document.getElementById('fotos-container').innerHTML = '';
+  document.getElementById('btn-add-foto').style.display = '';
+  (rec.fotos || []).forEach(f => addFotoItem(f));
+  goToStep(1);
+}
+
+// ----- Modal de lista de RMs -----
+function openRMsModal() { renderRMsList(); document.getElementById('rms-modal').style.display = 'flex'; }
+function closeRMsModal() { document.getElementById('rms-modal').style.display = 'none'; }
+
+async function renderRMsList() {
+  const list = document.getElementById('rms-list');
+  savedRMsCache = await rmGetAll();
+  document.getElementById('rms-count').textContent = savedRMsCache.length;
+  if (!savedRMsCache.length) {
+    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:16px">No hay RMs guardadas aún.</p>';
+    return;
+  }
+  const bs = 'padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);cursor:pointer;font-size:0.82rem';
+  list.innerHTML = savedRMsCache.map(r => {
+    const s = r.summary || {};
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+      <div style="font-weight:600">${escapeHtmlJS(r.id)}</div>
+      <div style="font-size:0.82rem;color:var(--muted);margin:2px 0">${escapeHtmlJS(s.tipo || '—')} · ${escapeHtmlJS(s.localidad || 'sin localidad')}</div>
+      <div style="font-size:0.72rem;color:var(--muted)">Guardada: ${new Date(r.savedAt).toLocaleString('es-CL')}</div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <button type="button" data-act="abrir" data-key="${r.key}" style="${bs}">✏️ Abrir</button>
+        <button type="button" data-act="kmz" data-key="${r.key}" style="${bs}">⬇️ KMZ</button>
+        <button type="button" data-act="pdf" data-key="${r.key}" style="${bs}">🖨️ PDF</button>
+        <button type="button" data-act="del" data-key="${r.key}" style="${bs};color:#e63946;border-color:#fecaca">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('button[data-act]').forEach(btn =>
+    btn.addEventListener('click', () => handleRMAction(btn.dataset.act, Number(btn.dataset.key))));
+}
+
+async function handleRMAction(act, key) {
+  const rec = savedRMsCache.find(r => r.key === key);
+  if (!rec) return;
+  if (act === 'kmz') { closeRMsModal(); return generateKMZ(rec); }
+  if (act === 'pdf') { closeRMsModal(); return generatePDF(rec); }
+  if (act === 'abrir') { closeRMsModal(); return populateForm(rec); }
+  if (act === 'del' && confirm(`¿Eliminar la RM "${rec.id}"?`)) {
+    await rmDelete(key);
+    await renderRMsList();
+    await refreshRMsCount();
+  }
+}
+
+// ----- KMZ combinado de todas las RMs del día -----
+async function generateCombinedKMZ() {
+  const all = await rmGetAll();
+  if (!all.length) { alert('No hay RMs guardadas para exportar.'); return; }
+  const loading = document.getElementById('loading'), msg = document.getElementById('loading-msg');
+  loading.classList.add('open'); msg.textContent = 'Creando KMZ del día...';
+  try {
+    const zip = new JSZip();
+    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const placemarks = [];
+    for (let i = 0; i < all.length; i++) {
+      const r = all[i], d = r.data, c = d.coords;
+      if (!c) continue;
+      const lng = c.lng ?? c.lon;
+      const folder = `media/rm${i + 1}`;
+      let fotosHtml = '';
+      (r.fotos || []).forEach((f, j) => {
+        if (f.blob) {
+          const fn = `${folder}/foto_${j + 1}.jpg`;
+          zip.file(fn, f.blob);
+          const az = f.azimuth != null ? ` 🧭 ${f.azimuth}°N` : '';
+          fotosHtml += `<p><img src="${fn}" style="max-width:100%"><br><i>${esc(f.desc || '')}${az}</i></p>`;
+        }
+      });
+      try { const ic = await generateIconPng(d.zona || 'generacion'); zip.file(`${folder}/icon.png`, ic); } catch {}
+      const estado = d.amenaza === 'si' ? 'Activo' : d.amenaza === 'no' ? 'Inactivo' : d.amenaza === 'incierta' ? 'En evaluación' : 'No evaluado';
+      const desc = `<![CDATA[<html><body style="font-family:Arial,sans-serif;font-size:13px">
+<h3 style="color:#e63946">${esc(d.id || ('RM ' + (i + 1)))}</h3>
+<p><b>Tipo:</b> ${esc(d['tipo-movimiento'] || '—')}</p>
+<p><b>Localidad:</b> ${esc(d.localidad || '—')} &nbsp; <b>Región:</b> ${esc(d.region || '—')}</p>
+<p><b>Fecha:</b> ${esc(d['fecha-inicio'] || '—')} &nbsp; <b>Desencadenante:</b> ${esc(d.desencadenante || '—')}</p>
+<p><b>Estado:</b> ${esc(estado)}</p>
+<p><b>Coordenadas:</b> ${c.lat.toFixed(6)}, ${lng.toFixed(6)}</p>
+${fotosHtml}
+</body></html>]]>`;
+      placemarks.push(`<Placemark>
+  <name>${esc(d.id || ('RM ' + (i + 1)))}</name>
+  <description>${desc}</description>
+  <Style><IconStyle><scale>1.2</scale><Icon><href>${folder}/icon.png</href></Icon></IconStyle></Style>
+  <Point><coordinates>${lng},${c.lat},0</coordinates></Point>
+</Placemark>`);
+    }
+    const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+<name>RMs del día — ${todayStr()}</name>
+${placemarks.join('\n')}
+</Document></kml>`;
+    zip.file('doc.kml', kml);
+    const content = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    downloadBlob(content, `RMs_${todayStr()}.kmz`);
+  } catch (e) {
+    alert('Error al generar KMZ del día: ' + e.message);
+    console.error(e);
+  } finally {
+    loading.classList.remove('open');
+  }
+}
+
+// ----- Wiring -----
+document.getElementById('btn-ver-rms').addEventListener('click', openRMsModal);
+document.getElementById('rms-close').addEventListener('click', closeRMsModal);
+document.getElementById('rms-modal').addEventListener('click', e => { if (e.target.id === 'rms-modal') closeRMsModal(); });
+document.getElementById('btn-guardar-rm').addEventListener('click', saveCurrentRM);
+document.getElementById('btn-kmz-dia').addEventListener('click', generateCombinedKMZ);
+
+// Iniciales del profesional: persistir y regenerar el ID sugerido al cambiar
+const inicialesEl = document.getElementById('prof-iniciales');
+inicialesEl.value = localStorage.getItem('rem-iniciales') || '';
+inicialesEl.addEventListener('input', () => {
+  const v = inicialesEl.value.toUpperCase().replace(/[^A-ZÑ]/g, '');
+  inicialesEl.value = v;
+  localStorage.setItem('rem-iniciales', v);
+  const idEl = document.getElementById('rm-id');
+  // Regenerar solo si el ID es autogenerado (vacío o con patrón RM-…)
+  if (!idEl.value || /^RM-/.test(idEl.value)) generateRMId().then(id => { idEl.value = id; });
+});
+
+refreshRMsCount().then(() => {
+  const idEl = document.getElementById('rm-id');
+  if (idEl && !idEl.value) generateRMId().then(id => { idEl.value = id; });
+});
   </script>
 
   <script>
